@@ -10,15 +10,15 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/components/auth-provider';
-import { db as firebaseDb } from '@/lib/firebase';
-import { ArrowLeft, Save, Upload } from 'lucide-react';
+import { getFirebaseDb } from '@/lib/firebase'; // Use getter function
+import { ArrowLeft, Save, Upload, Loader2 } from 'lucide-react'; // Import Loader2
 import LoadingSpinner from '@/components/loading-spinner';
 
 export default function SettingsPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
-  const db = firebaseDb();
+  const db = getFirebaseDb(); // Get Firestore instance via getter
 
   const [openaiApiKey, setOpenaiApiKey] = useState('');
   const [templateContent, setTemplateContent] = useState('');
