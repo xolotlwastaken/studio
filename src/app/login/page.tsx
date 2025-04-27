@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { auth as firebaseAuth } from '@/lib/firebase'; // Import initialized auth
+import { getFirebaseAuth } from '@/lib/firebase'; // Import the getter function
 import { Github, Chrome } from 'lucide-react'; // Use Chrome instead of Google
 
 
@@ -18,7 +18,7 @@ export default function LoginPage() {
   const [isSignUp, setIsSignUp] = useState(false);
   const router = useRouter();
   const { toast } = useToast();
-  const auth = firebaseAuth(); // Use the initialized auth instance
+  const auth = getFirebaseAuth(); // Get the initialized auth instance
 
 
   const handleAuthAction = async (e: React.FormEvent) => {
@@ -34,10 +34,21 @@ export default function LoginPage() {
       router.push('/'); // Redirect to dashboard after successful login/signup
     } catch (error: any) {
       console.error('Authentication error:', error);
+      let description = error.message || 'An unexpected error occurred.';
+      if (error.code === 'auth/invalid-api-key') {
+        description = 'Invalid Firebase API Key. Please check your environment configuration.';
+      } else if (error.code === 'auth/wrong-password') {
+         description = 'Incorrect password. Please try again.';
+      } else if (error.code === 'auth/user-not-found') {
+          description = 'No user found with this email. Please sign up or check the email address.';
+      } else if (error.code === 'auth/email-already-in-use') {
+          description = 'This email is already registered. Please log in instead.';
+      }
+
       toast({
         variant: 'destructive',
         title: 'Authentication Failed',
-        description: error.message || 'An unexpected error occurred.',
+        description: description,
       });
     }
   };
@@ -50,10 +61,18 @@ export default function LoginPage() {
       router.push('/');
     } catch (error: any) {
       console.error('Google Sign-In error:', error);
+       let description = error.message || 'Could not sign in with Google.';
+       if (error.code === 'auth/popup-closed-by-user') {
+            description = 'Google Sign-In cancelled.';
+       } else if (error.code === 'auth/cancelled-popup-request') {
+           description = 'Google Sign-In cancelled.';
+       } else if (error.code === 'auth/popup-blocked') {
+            description = 'Google Sign-In popup blocked by browser. Please allow popups for this site.';
+       }
       toast({
         variant: 'destructive',
         title: 'Google Sign-In Failed',
-        description: error.message || 'Could not sign in with Google.',
+        description: description,
       });
     }
   };
@@ -131,4 +150,3 @@ export default function LoginPage() {
     </div>
   );
 }
-
