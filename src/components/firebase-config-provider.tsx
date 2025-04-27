@@ -1,7 +1,7 @@
 'use client';
 
 import type React from 'react';
-import { initializeAppIfNeeded } from '@/lib/firebase'; // Fix: Import initializeAppIfNeeded instead of initializeApp
+import { initializeFirebaseApp } from '@/lib/firebase'; // Fix: Import initializeFirebaseApp
 import { useEffect, useState } from 'react';
 
 export function FirebaseConfigProvider({
@@ -13,7 +13,7 @@ export function FirebaseConfigProvider({
 
   useEffect(() => {
     if (!initialized) {
-      initializeAppIfNeeded(); // Fix: Call initializeAppIfNeeded
+      initializeFirebaseApp(); // Fix: Call initializeFirebaseApp
       setInitialized(true);
     }
   }, [initialized]);

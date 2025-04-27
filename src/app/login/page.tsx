@@ -15,6 +15,7 @@ import { Github, Chrome } from 'lucide-react'; // Use Chrome instead of Google
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
   const router = useRouter();
   const { toast } = useToast();
@@ -24,14 +25,26 @@ export default function LoginPage() {
   const handleAuthAction = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      if (isSignUp) {
+      if (isSignUp) {    
+        if(password !== confirmPassword) {
+            toast({
+                variant: 'destructive',
+                title: 'Registration Failed',
+                description: 'Passwords do not match.',
+              });
+              return;
+        }
         await createUserWithEmailAndPassword(auth, email, password);
         toast({ title: 'Success', description: 'Account created successfully!' });
+        setEmail('');
+        setPassword('');
+        setConfirmPassword('');
+        setIsSignUp(false);
       } else {
         await signInWithEmailAndPassword(auth, email, password);
         toast({ title: 'Success', description: 'Logged in successfully!' });
+        router.push('/');
       }
-      router.push('/'); // Redirect to dashboard after successful login/signup
     } catch (error: any) {
       console.error('Authentication error:', error);
       let description = error.message || 'An unexpected error occurred.';
@@ -114,6 +127,21 @@ export default function LoginPage() {
                 className="focus:ring-accent"
               />
             </div>
+            {isSignUp && (
+                <div className="space-y-2">
+                <Label htmlFor="confirmPassword">Confirm Password</Label>
+                <Input
+                    id="confirmPassword"
+                    type="password"
+                    placeholder="••••••••"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                    minLength={6}
+                    className="focus:ring-accent"
+                />
+                </div>
+            )}
             <Button type="submit" className="w-full bg-primary hover:bg-primary/90 text-primary-foreground">
               {isSignUp ? 'Sign Up' : 'Log In'}
             </Button>

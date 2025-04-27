@@ -1,6 +1,6 @@
 // src/lib/firebase.ts
-import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { initializeApp, getApps, getApp, FirebaseApp, deleteApp } from 'firebase/app';
+import { getFirestore, enableIndexedDbPersistence, Firestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import { getAuth } from 'firebase/auth';
 
@@ -25,7 +25,7 @@ const firebaseConfig = {
 
 let app: FirebaseApp;
 
-export const initializeAppIfNeeded = () => {
+const initializeAppIfNeeded = () => {
     // Client-side check for missing config
     if (typeof window !== 'undefined') {
       if (!firebaseConfig.apiKey) {
@@ -43,6 +43,7 @@ export const initializeAppIfNeeded = () => {
 
   if (!getApps().length) {
     try {
+        
         app = initializeApp(firebaseConfig);
     } catch (error: any) {
         console.error("Firebase initialization error:", error);
@@ -59,23 +60,38 @@ export const initializeAppIfNeeded = () => {
   return app;
 };
 
-// Initialize Firebase on module load for client-side usage
-if (typeof window !== 'undefined') {
-  initializeAppIfNeeded();
+export const initializeFirebaseApp = () => {
+    initializeAppIfNeeded();
+     // Enable persistence if in the browser
+    if (typeof window !== 'undefined') {
+        const db = getFirestore(app)
+        enableIndexedDbPersistence(db).catch((err) => {
+          if (err.code == 'failed-precondition') {
+            console.error("Multiple tabs open, persistence can only be enabled in one tab at a a time.")
+          } else if (err.code == 'unimplemented') {
+            console.error("The current browser does not support all of the features required to enable persistence.")
+          }
+        });
+    }
 }
+
+// Initialize Firebase on module load for client-side usage
+// if (typeof window !== 'undefined') {
+//   initializeFirebaseApp();
+// }
 
 
 // Export Firebase services for use in components
 // Use functions to ensure initialization happens before accessing services
 export const getFirebaseAuth = () => getAuth(initializeAppIfNeeded());
-export const getFirebaseDb = () => getFirestore(initializeAppIfNeeded());
-export const getFirebaseStorage = () => getStorage(initializeAppIfNeeded());
+export const getFirebaseDb = () => {
+    return getFirestore(initializeAppIfNeeded());
+};
+export const getFirebaseStorage = () => getStorage(getApp());
 
 
-// Re-export initialized app instance if needed, though service functions are safer
+
 export { app };
-
-// Legacy exports (maintain for compatibility if components directly use these)
-export const auth = getFirebaseAuth;
-export const db = getFirebaseDb;
-export const storage = getFirebaseStorage;
+export const auth = getFirebaseAuth; // Legacy exports (maintain for compatibility if components directly use these)
+export const db = getFirebaseDb; // Legacy exports (maintain for compatibility if components directly use these)
+export const storage = getFirebaseStorage; // Legacy exports (maintain for compatibility if components directly use these)
