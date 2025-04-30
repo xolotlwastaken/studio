@@ -1,5 +1,6 @@
 'use client';
 
+import { defaultSummaryTemplate } from '@/lib/templates';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getFirestore, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
@@ -9,8 +10,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/components/auth-provider';
-import { getFirebaseDb } from '@/lib/firebase'; // Use getter function
+import { useAuth } from '@/components/auth-provider'; // Import useAuth hook
+import { db } from '@/lib/firebase'; // Import db directly
 import { ArrowLeft, Save, Upload, Loader2 } from 'lucide-react'; // Import Loader2
 import LoadingSpinner from '@/components/loading-spinner';
 
@@ -18,10 +19,10 @@ export default function SettingsPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
-  const db = getFirebaseDb(); // Get Firestore instance via getter
 
   const [openaiApiKey, setOpenaiApiKey] = useState('');
-  const [templateContent, setTemplateContent] = useState('');
+  const [assemblyAiApiKey, setAssemblyAiApiKey] = useState('');
+  const [templateContent, setTemplateContent] = useState(defaultSummaryTemplate);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -40,6 +41,7 @@ export default function SettingsPage() {
         if (docSnap.exists()) {
           const data = docSnap.data();
           setOpenaiApiKey(data.openaiApiKey || '');
+          setAssemblyAiApiKey(data.assemblyAiApiKey || '');
           setTemplateContent(data.template || '');
         }
       } catch (error) {
@@ -62,6 +64,7 @@ export default function SettingsPage() {
     try {
       // Use setDoc with merge: true to create or update the document
       await setDoc(userDocRef, {
+        assemblyAiApiKey: assemblyAiApiKey,
         openaiApiKey: openaiApiKey, // In a real app, encrypt this or handle server-side
         template: templateContent,
       }, { merge: true });
@@ -127,6 +130,20 @@ export default function SettingsPage() {
                      Your API key is used for summarization. It's stored securely (or should be in a real app!).
                    </p>
                  </div>
+                 <div className="space-y-2">
+                   <Label htmlFor="assemblyai-api-key">AssemblyAI API Key</Label>
+                   <Input
+                     id="assemblyai-api-key"
+                     type="password"
+                     placeholder="Enter your AssemblyAI API Key"
+                     value={assemblyAiApiKey}
+                     onChange={(e) => setAssemblyAiApiKey(e.target.value)}
+                     className="focus:ring-accent"
+                   />
+                   <p className="text-xs text-muted-foreground">
+                     Your AssemblyAI API Key is used for transcribing and summarizing audio recordings.
+                   </p>
+                 </div>
 
                  <div className="space-y-2">
                    <div className="flex justify-between items-center">
@@ -135,8 +152,7 @@ export default function SettingsPage() {
                             <Upload className="mr-2 h-4 w-4" /> Upload Template
                         </Button>
                          <Input id="templateInput" type="file" accept=".txt,.docx,.json,.md" className="hidden" onChange={handleTemplateUpload} />
-                   </div>
-
+                   </div>                   
                    <Textarea
                      id="template-content"
                      placeholder="Paste your template content here (e.g., DOCX, TXT, JSON structure) or upload a file."
@@ -144,6 +160,9 @@ export default function SettingsPage() {
                      onChange={(e) => setTemplateContent(e.target.value)}
                      className="min-h-[200px] focus:ring-accent"
                    />
+                   <div className="flex justify-end items-center mt-2">                    
+                        <Button type="button" variant="outline" size="sm" onClick={() => setTemplateContent(defaultSummaryTemplate)}>Use Default Template</Button>
+                   </div>
                    <p className="text-xs text-muted-foreground">
                      Provide an example document structure. The AI will use this to format the summary. You can paste content or upload a TXT/DOCX/JSON file.
                    </p>

@@ -1,10 +1,10 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';;
 import { signOut } from 'firebase/auth';
-import { collection, addDoc, query, where, onSnapshot, doc, updateDoc, getDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { collection, addDoc, query, where, onSnapshot, doc, updateDoc, getDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL, deleteObject, StorageReference } from 'firebase/storage';
 import {
   Sidebar,
   SidebarContent,
@@ -28,12 +28,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from '@/hooks/use-toast'; // Updated import path
 import { useAuth } from '@/components/auth-provider';
-import { getFirebaseAuth, getFirebaseDb, getFirebaseStorage } from '@/lib/firebase'; // Use getter functions
+import { auth, db, storage } from '@/lib/firebase'; // Use getter functions
 import { transcribeAudio } from '@/ai/flows/transcribe-audio';
 import { summarizeTranscriptWithTemplate } from '@/ai/flows/summarize-transcript';
-import { Upload, Mic, Download, FileText, Settings, LogOut, Loader2, Edit3 } from 'lucide-react';
+import { Upload, Mic, Download, FileText, Settings, LogOut, Loader2, Edit3, Trash2 } from 'lucide-react';
 import LoadingSpinner from './loading-spinner';
 
 interface Recording {
@@ -43,16 +43,14 @@ interface Recording {
   transcript?: string;
   summary?: string;
   createdAt: Date;
-  status: 'new' | 'transcribing' | 'summarizing' | 'completed' | 'error';
-}
+  status: 'processing-pending' | 'transcribing' | 'summarizing' | 'completed' | 'error';
+};
 
 export default function Dashboard() {
+  const [isDeleting, setIsDeleting] = useState(false);
   const { user } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
-  const auth = getFirebaseAuth(); // Use getter
-  const db = getFirebaseDb(); // Use getter
-  const storage = getFirebaseStorage(); // Use getter
 
   const [isRecording, setIsRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
@@ -64,8 +62,8 @@ export default function Dashboard() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState('');
   const [progress, setProgress] = useState(0);
-  const [isEditingTranscript, setIsEditingTranscript] = useState(false);
   const [editedTranscript, setEditedTranscript] = useState('');
+  const [isEditingTranscript, setIsEditingTranscript] = useState(false);
 
 
   useEffect(() => {
@@ -210,8 +208,7 @@ export default function Dashboard() {
     }
   };
 
-  const stopRecording = () => {
-    if (mediaRecorder && isRecording) { // Add isRecording check
+  const stopRecording = () => {if (mediaRecorder && isRecording) { // Add isRecording check
       mediaRecorder.stop();
       setIsRecording(false);
       // Toast moved to onstop handler after upload starts/completes
@@ -235,6 +232,7 @@ export default function Dashboard() {
     if (!user) return;
     if (audioBlob.size === 0) {
          toast({ variant: 'destructive', title: 'Upload Error', description: 'Cannot upload empty file.' });
+         setIsProcessing(false);
          return;
     }
 
@@ -242,35 +240,45 @@ export default function Dashboard() {
     setProcessingStatus('Uploading audio...');
     setProgress(10);
 
-    const storageRef = ref(storage, `users/${user.uid}/audio/${fileName}`);
+    const uniqueString = Math.random().toString(36).substring(2, 15);
+    const storageFileName = `${Date.now()}-${uniqueString}.${fileName.split('.').pop()}`;
+    const storageRef = ref(storage, `users/${user.uid}/audio/${storageFileName}`);
+    let storageRefUpload: StorageReference | undefined;
+  
     try {
         const uploadTask = await uploadBytes(storageRef, audioBlob);
-        const downloadURL = await getDownloadURL(uploadTask.ref);
-
-        setProgress(30);
-        setProcessingStatus('Saving recording metadata...');
-
         const recordingsRef = collection(db, 'users', user.uid, 'recordings');
-        const newRecordingDoc = await addDoc(recordingsRef, {
+
+        const newRecordingRef = await addDoc(recordingsRef, {
             userId: user.uid,
             name: fileName,
-            audioUrl: downloadURL,
-            createdAt: new Date(),
-            status: 'new', // Initial status
+            createdAt: serverTimestamp(),
+            status: 'uploading', // Initial status
+            audioFileName: storageFileName,
+        });
+
+        const recordingId = newRecordingRef.id;
+        const storageFileNameRecordings = `${Date.now()}-${uniqueString}.${fileName.split('.').pop()}`;
+        storageRefUpload = ref(storage, `users/${user.uid}/recordings/${recordingId}/audio/${storageFileNameRecordings}`);        
+
+         await uploadBytes(storageRef, audioBlob);
+        const downloadURL = await getDownloadURL(uploadTask.ref);
+
+        await updateDoc(doc(db, `users/${user.uid}/recordings`, recordingId), {
+            status: 'uploaded', // Update status to uploaded
         });
 
         setProgress(50);
         setProcessingStatus('Starting transcription...');
         toast({ title: 'Upload Complete', description: `"${fileName}" uploaded. Starting processing.` });
 
-        // Select the new recording immediately
          const newRecData = {
-              id: newRecordingDoc.id,
+              id: newRecordingRef.id,
               userId: user.uid,
               name: fileName,
               audioUrl: downloadURL,
               createdAt: new Date(),
-              status: 'new',
+              status: 'processing-pending',
             } as Recording;
          // Update local state optimistically (or fetch again, but this is faster)
           setRecordings(prev => [newRecData, ...prev].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()));
@@ -279,8 +287,45 @@ export default function Dashboard() {
           setEditedTranscript(''); // Clear any previous edits
 
         // Trigger the processing flow
-        await processRecording(newRecordingDoc.id, downloadURL, fileName);
+        await processRecording(newRecordingRef.id, downloadURL, fileName, storageRefUpload);
 
+          //setup firestore listener
+           const recordingDocRef = doc(db, 'users', user.uid, 'recordings', newRecordingRef.id);
+
+             const unsubscribe = onSnapshot(recordingDocRef, (docSnap) => {
+                 if (docSnap.exists()) {
+                      const data = docSnap.data() as Recording;
+                       // Update the recording in the state
+                     setRecordings((prevRecordings) =>
+                       prevRecordings.map((rec) =>
+                           rec.id === newRecordingRef.id
+                             ? { ...rec, ...data } // Spread the new data over the existing
+                             : rec
+                         )
+                       );
+
+                     //update the selected recording if it exists
+                      if (selectedRecording?.id === newRecordingRef.id) {
+                         setSelectedRecording((prev) => ({
+                          ...prev!,
+                           ...data,
+                         }));
+                        // Optionally update editedTranscript if not currently editing
+                         if (!isEditingTranscript) {
+                           setEditedTranscript(data.transcript || '');
+                         }
+                      }
+                     //update UI with status.
+                     if(data.status === 'upload-complete' || data.status === 'error'){
+                         setIsProcessing(false);
+                         setProgress(0);
+                         setProcessingStatus(data.status === 'error' ? `Error processing "${fileName}": ${data.summary || 'Unknown error'}` : ''); // Show error status
+                      }
+                       }
+                 }, (error) => {
+                        console.error("Error listening to recording document:", error);
+                        // Handle the error, e.g., show a toast or update UI
+                });
     } catch (error) {
         console.error('Error uploading or processing file:', error);
         toast({ variant: 'destructive', title: 'Upload Failed', description: `Could not upload or process ${fileName}.` });
@@ -290,7 +335,8 @@ export default function Dashboard() {
     }
   };
 
- const processRecording = async (recordingId: string, audioUrl: string, fileName: string) => {
+ const processRecording = async (recordingId: string, audioUrl: string, fileName: string, storageRefUpload?: StorageReference) => {
+    console.log('processRecording called for recording:', recordingId, 'with audioUrl:', audioUrl);
      if (!user) return;
 
      // Ensure processing state is active (might be set by uploadAudio)
@@ -300,60 +346,102 @@ export default function Dashboard() {
      const recordingDocRef = doc(db, 'users', user.uid, 'recordings', recordingId);
 
      try {
-         // 1. Update status to transcribing
-         setProcessingStatus(`Transcribing "${fileName}"...`);
-         await updateDoc(recordingDocRef, { status: 'transcribing' });
-         setProgress(60);
+          // Fetch recording data to get audioFileName
+          const recordingSnap = await getDoc(recordingDocRef);
+          if (!recordingSnap.exists()) throw new Error('Recording document not found');
+          const recordingData = recordingSnap.data() as Recording;
+          const { audioFileName } = recordingData;
 
-         // 2. Fetch audio data and convert to data URI
-         const response = await fetch(audioUrl);
-          if (!response.ok) {
-             throw new Error(`Failed to fetch audio: ${response.statusText}`);
-          }
-         const blob = await response.blob();
-         const base64data = await new Promise<string>((resolve, reject) => {
-             const reader = new FileReader();
-             reader.readAsDataURL(blob);
-             reader.onloadend = () => resolve(reader.result as string);
-             reader.onerror = (error) => reject(new Error(`Failed to read audio blob: ${error}`));
-         });
+          // 1. Update status to transcribing
+          console.log("AudioFileName:", audioFileName);
+            console.log("user.uid:", user.uid);
+          setProcessingStatus(`Transcribing "${fileName}"...`);
+          await updateDoc(recordingDocRef, { status: 'transcribing' });
+          setProgress(60);
+         
+        // 2. Fetch audio data and convert to data URI
+         console.log("AudioFileName:", audioFileName);
+         console.log("user.uid:", user.uid);
+         const audioFileRef = ref(storage, `users/${user.uid}/audio/${audioFileName}`);
+         const audio_url = await getDownloadURL(audioFileRef);
 
-         // 3. Call transcription flow
-         const transcriptionResult = await transcribeAudio({ audioDataUri: base64data });
-         const transcript = transcriptionResult.text;
+         // 3. Check for template existence before proceeding
+         let currentTemplate = '';
+        // 3. Call transcription flow
+          let transcript = '';
+           try {
+               const transcriptionResult = await transcribeAudio({ audioFileName: audio_url, userId: user.uid });
+                transcript = transcriptionResult.text;
+                setProgress(80);
+                setProcessingStatus(`Transcription complete. Summarizing "${fileName}"...`);
 
-         setProgress(80);
-         setProcessingStatus(`Transcription complete. Summarizing "${fileName}"...`);
+                // 4. Update Firestore with transcript and status -> summarizing
+                await updateDoc(recordingDocRef, { transcript: transcript, status: 'summarizing' });
+                // Update local state if this is the selected recording
+                 if (selectedRecording?.id === recordingId) {
+                    setSelectedRecording(prev => prev ? { ...prev, transcript: transcript, status: 'summarizing' } : null);
+                    setEditedTranscript(transcript); // Update editor state as well
+                 }
+
+                 // 4. Check for template existence before proceeding
+                 // Re-fetch template in case it changed
+                 const userDocRef = doc(db, 'users', user.uid);
+                 const userDocSnap = await getDoc(userDocRef);
+                 currentTemplate = userDocSnap.exists() ? userDocSnap.data().template || '' : '';
+                 setUserTemplate(currentTemplate); // Update state
 
 
-         // 4. Update Firestore with transcript and status -> summarizing
-         await updateDoc(recordingDocRef, { transcript: transcript, status: 'summarizing' });
-          // Update local state if this is the selected recording
-         if (selectedRecording?.id === recordingId) {
-            setSelectedRecording(prev => prev ? { ...prev, transcript: transcript, status: 'summarizing' } : null);
-            setEditedTranscript(transcript); // Update editor state as well
-         }
+                 if (!currentTemplate) {
+                    await updateDoc(recordingDocRef, { status: 'completed', summary: 'No template provided for summarization.' });
+                     if (selectedRecording?.id === recordingId) {
+                         setSelectedRecording(prev => prev ? { ...prev, status: 'completed', summary: 'No template provided for summarization.' } : null);
+                     }
+                    toast({ title: 'Processing Complete', description: `Transcription finished for "${fileName}". No template found for summarization.` });
+                    setIsProcessing(false);
+                    setProgress(100);
+                    setTimeout(() => { setProgress(0); setProcessingStatus(''); }, 1500);
+                    return; // Stop processing here
+                 }
+             } catch (transcriptionError: any) {
+              console.error('Transcription failed catch block entered', transcriptionError);
+                const errorMessage = `Transcription Failed for "${fileName}": ${transcriptionError.message}`;
+                // Update recording status to error in Firestore
+                console.log('Attempting to update status to error for document:', recordingId);
+                const recordingDocRef = doc(db, 'users', user.uid, 'recordings', recordingId);
+
+               try {
+                   await updateDoc(recordingDocRef, { status: 'error', summary: errorMessage });
+                   console.log('Firestore document updated with status: error');
+                   // Update recording status to error in the list instead of removing
+                    setRecordings((prevRecordings) =>
+                        prevRecordings.map((rec) =>
+                            rec.id === recordingId
+                                ? {
+                                    ...rec,
+                                    status: 'error', // Update status to error
+                                }
+                                : rec
+                        )
+                    );
+                    // Update selected recording if it's the failed one
+                    if (selectedRecording?.id === recordingId) {
+                        setSelectedRecording((prev) => (prev ? { ...prev, status: 'error', summary: errorMessage } : null));
+                         setEditedTranscript('');
+                    }
+                } catch (updateError) {
+                   console.error('Error updating document to error:', updateError);
+                }
+                 finally {
+                        setProcessingStatus('');
+                        setProgress(0);
+                        console.log("after state updates in catch block: ", { selectedRecording, recordings, processingStatus, progress });
+                         setProcessingStatus(errorMessage);
+                }
 
 
-         // 5. Check for template existence before proceeding
-         // Re-fetch template in case it changed
-         const userDocRef = doc(db, 'users', user.uid);
-         const userDocSnap = await getDoc(userDocRef);
-         const currentTemplate = userDocSnap.exists() ? userDocSnap.data().template || '' : '';
-         setUserTemplate(currentTemplate); // Update state
 
-
-         if (!currentTemplate) {
-             await updateDoc(recordingDocRef, { status: 'completed', summary: 'No template provided for summarization.' });
-              if (selectedRecording?.id === recordingId) {
-                  setSelectedRecording(prev => prev ? { ...prev, status: 'completed', summary: 'No template provided for summarization.' } : null);
-              }
-             toast({ title: 'Processing Complete', description: `Transcription finished for "${fileName}". No template found for summarization.` });
-             setIsProcessing(false);
-             setProgress(100);
-             setTimeout(() => { setProgress(0); setProcessingStatus(''); }, 1500);
-             return; // Stop processing here
-         }
+              return; // Stop processing here
+           }
 
          // 6. Call summarization flow
          const summaryResult = await summarizeTranscriptWithTemplate({ transcript: transcript, template: currentTemplate });
@@ -376,7 +464,6 @@ export default function Dashboard() {
          setTimeout(() => { setProgress(0); setProcessingStatus(''); }, 1500); // Reset progress and status after a delay
 
      } catch (error: any) {
-         console.error(`Error processing recording ${recordingId} ("${fileName}"):`, error);
          const errorMessage = `Error processing "${fileName}": ${error.message || 'Unknown error'}`;
          try {
             await updateDoc(recordingDocRef, { status: 'error', summary: errorMessage });
@@ -390,8 +477,11 @@ export default function Dashboard() {
          toast({ variant: 'destructive', title: 'Processing Failed', description: errorMessage });
          setIsProcessing(false);
          setProgress(0);
-         setProcessingStatus(errorMessage); // Show error status
+         setProcessingStatus(''); // Show error status
      }
+     finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleSelectRecording = (recording: Recording) => {
@@ -462,6 +552,7 @@ export default function Dashboard() {
       }
   }
 
+
   const handleDownload = (type: 'transcript' | 'summary') => {
     if (!selectedRecording) return;
 
@@ -482,16 +573,60 @@ export default function Dashboard() {
     URL.revokeObjectURL(link.href);
     toast({ title: 'Download Started', description: `${type.charAt(0).toUpperCase() + type.slice(1)} is downloading.` });
   };
+  const handleDeleteRecording = async (recordingId: string, audioUrl: string) => {
+       if (!user) return;
+       const confirmed = confirm('Are you sure you want to delete this recording?');
+       if (!confirmed) return;
+        setIsDeleting(true);
+        console.log('Attempting to delete storage object with URL:', audioUrl);
+       try {
+           // Delete from storage
+            const recordingDocRef = doc(db, 'users', user.uid, 'recordings', recordingId);
+            const recordingSnap = await getDoc(recordingDocRef);
+            if (recordingSnap.exists()) {
+                const recordingData = recordingSnap.data() as Recording;
+               const { audioFileName } = recordingData;
+                const storageRef = ref(storage, `users/${user.uid}/audio/${audioFileName}`);
+                 await deleteObject(storageRef);
+                 // Delete from firestore
+                await deleteDoc(recordingDocRef);
+            } else {
+                 throw new Error('Recording document not found'); // Handle missing document
+            }
+
+           // Update UI
+           setRecordings(prev => prev.filter(rec => rec.id !== recordingId));
+           if (selectedRecording?.id === recordingId) {
+               setSelectedRecording(null);
+               setEditedTranscript('');
+           }
+
+           toast({ title: 'Recording Deleted', description: 'The recording was successfully deleted.' });
+       } catch (error) {
+           console.error('Error deleting recording:', error);
+           toast({
+               variant: 'destructive',
+               title: 'Deletion Failed',
+               description: 'Could not delete the recording.',
+           });
+       } finally {
+           setIsDeleting(false);
+       }
+   };
+
 
 
   return (
     <SidebarProvider defaultOpen>
       <Sidebar collapsible='icon'>
         <SidebarHeader>
+          
           <div className="flex items-center gap-2 p-2">
              <FileText className="h-6 w-6 text-primary" />
              <h1 className="text-xl font-semibold flex-1 overflow-hidden whitespace-nowrap group-data-[collapsible=icon]:hidden">Smart Scribe</h1>
              <SidebarTrigger className="ml-auto group-data-[collapsible=icon]:hidden"/>
+            
+
           </div>
         </SidebarHeader>
         <SidebarContent className="p-0">
@@ -525,7 +660,7 @@ export default function Dashboard() {
                 <p className="px-2 text-sm text-muted-foreground group-data-[collapsible=icon]:hidden">No recordings yet.</p>
               ) : (
                 recordings.map((rec) => (
-                  <SidebarMenuItem key={rec.id}>
+                  <SidebarMenuItem key={rec.id} >
                     <SidebarMenuButton
                        isActive={selectedRecording?.id === rec.id}
                        onClick={() => handleSelectRecording(rec)}
@@ -536,10 +671,21 @@ export default function Dashboard() {
                         {rec.status === 'transcribing' && <Loader2 className="h-4 w-4 animate-spin" />}
                         {rec.status === 'summarizing' && <Loader2 className="h-4 w-4 animate-spin" />}
                         {rec.status === 'completed' && <FileText className="text-green-500" />}
-                        {rec.status === 'error' && <FileText className="text-red-500" />}
-                        {rec.status === 'new' && <FileText />}
+                        {rec.status === 'error' && <FileText className="text-red-500"/>}
 
                       <span className="group-data-[collapsible=icon]:hidden flex-1 truncate">{rec.name}</span>
+                      {!isDeleting && (
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteRecording(rec.id, rec.audioUrl);
+                                    }} 
+                                    asChild={true}
+                                    className="group-data-[collapsible=icon]:hidden hover:bg-transparent"
+                                ><Trash2 className="h-4 w-4 text-red-500" /></Button>
+                            )}
                        {/* Status Indicator for collapsed view - maybe remove if icon covers it */}
                       {/* <span className="ml-auto text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
                           {rec.status === 'transcribing' && <Loader2 className="h-3 w-3 animate-spin" />}
@@ -633,7 +779,7 @@ export default function Dashboard() {
                    {selectedRecording.status === 'transcribing' || (selectedRecording.status === 'new' && !selectedRecording.transcript) ? (
                        <div className="flex-1 flex items-center justify-center text-muted-foreground">
                            <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Waiting for transcription...
-                       </div>
+                         </div>
                    ) : selectedRecording.status === 'error' && !selectedRecording.transcript ? (
                        <div className="flex-1 flex items-center justify-center text-red-600 p-4 text-center">
                            <p>Transcription failed. {selectedRecording.summary}</p>
@@ -646,7 +792,7 @@ export default function Dashboard() {
                            placeholder="Edit transcript..."
                            disabled={isProcessing}
                        />
-                   ) : (
+                    ) : (
                        <Textarea
                            readOnly
                            value={selectedRecording.transcript || 'No transcript available.'}
@@ -688,11 +834,16 @@ export default function Dashboard() {
                       </div>
                   ): (
                       <Textarea
-                          readOnly
-                          value={selectedRecording.summary || 'Summary not available.'}
-                          className="flex-1 resize-none text-sm bg-muted/30" // Use flex-1
-                      />
+                        readOnly
+                        value={selectedRecording.summary || 'Summary not available.'}
+                        className="flex-1 resize-none text-sm bg-muted/30 overflow-y-auto" // Use flex-1, make it resizable, and add scroll
+                        style={{ minHeight: '200px' }}
+                    />
                   )}
+                 {/* Placeholder for Markdown rendering component */}
+                    {/*  <ReactMarkdown>
+                        {selectedRecording.summary || ''}
+                    </ReactMarkdown> */}
                   {selectedRecording.summary && selectedRecording.status !== 'error' && (
                       <Button variant="default" size="sm" className="mt-4 flex-shrink-0 bg-accent hover:bg-accent/90 text-accent-foreground" onClick={() => handleDownload('summary')}>
                           <Download className="mr-2 h-4 w-4" /> Download Summary

@@ -11,16 +11,17 @@
 
 import {ai} from '@/ai/ai-instance';
 import {z} from 'genkit';
+import { defaultSummaryTemplate } from '@/lib/templates';
 
 const SummarizeTranscriptWithTemplateInputSchema = z.object({
   transcript: z
-    .string()
-    .describe('The transcript of the audio recording.'),
-  template: z
-    .string()
-    .describe(
-      'A document template (e.g. DOCX, TXT, or JSON example) to use for formatting the summary.'
-    ),
+      .string()
+      .describe('The transcript of the audio recording.'),
+  template: z.string()
+      .describe(
+          'A document template (e.g. DOCX, TXT, or JSON example) to use for formatting the summary.'
+      )
+      .optional(),
 });
 export type SummarizeTranscriptWithTemplateInput = z.infer<
   typeof SummarizeTranscriptWithTemplateInputSchema
@@ -36,7 +37,9 @@ export type SummarizeTranscriptWithTemplateOutput = z.infer<
 export async function summarizeTranscriptWithTemplate(
   input: SummarizeTranscriptWithTemplateInput
 ): Promise<SummarizeTranscriptWithTemplateOutput> {
-  return summarizeTranscriptWithTemplateFlow(input);
+    const template = input.template || defaultSummaryTemplate;
+
+    return summarizeTranscriptWithTemplateFlow({...input, template});
 }
 
 const prompt = ai.definePrompt({

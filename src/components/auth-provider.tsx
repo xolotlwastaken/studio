@@ -10,7 +10,7 @@ import {
   useMemo,
 } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { getFirebaseAuth } from '@/lib/firebase'; // Use the getter function
+import { auth } from '@/lib/firebase';
 import LoadingSpinner from '@/components/loading-spinner';
 
 interface AuthContextType {
@@ -27,8 +27,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   // Get auth instance once using the getter
-  const auth = useMemo(() => getFirebaseAuth(), []);
-
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
