@@ -8,8 +8,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { getFirebaseAuth } from '@/lib/firebase'; // Import the getter function
-import { Github, Chrome } from 'lucide-react'; // Use Chrome instead of Google
+import { auth } from '@/lib/firebase';
+import { Github, Chrome } from 'lucide-react';
 
 
 export default function LoginPage() {
@@ -19,7 +19,6 @@ export default function LoginPage() {
   const [isSignUp, setIsSignUp] = useState(false);
   const router = useRouter();
   const { toast } = useToast();
-  const auth = getFirebaseAuth(); // Get the initialized auth instance
 
 
   const handleAuthAction = async (e: React.FormEvent) => {
