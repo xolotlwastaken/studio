@@ -1,7 +1,7 @@
 'use client';
 
-import { defaultSummaryTemplate } from '@/lib/templates';
-import React, { useState, useEffect } from 'react';
+import { defaultSummaryTemplate } from '@/lib/templates'; 
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { getFirestore, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
@@ -13,7 +13,9 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/components/auth-provider'; // Import useAuth hook
 import { db } from '@/lib/firebase'; // Import db directly
 import { ArrowLeft, Save, Upload, Loader2 } from 'lucide-react'; // Import Loader2
+import mammoth from 'mammoth'; // Import mammoth
 import LoadingSpinner from '@/components/loading-spinner';
+import { marked } from 'marked'; // Import marked
 
 export default function SettingsPage() {
   const { user, loading: authLoading } = useAuth();
@@ -24,7 +26,9 @@ export default function SettingsPage() {
   const [assemblyAiApiKey, setAssemblyAiApiKey] = useState('');
   const [templateContent, setTemplateContent] = useState(defaultSummaryTemplate);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
+  const templateInputRef = useRef<HTMLInputElement>(null); // Create a ref for the file input
+   const [isSaving, setIsSaving] = useState(false);
+   const [isUploading, setIsUploading] = useState(false); // New loading state for upload
 
   useEffect(() => {
     if (authLoading) return;
@@ -42,7 +46,9 @@ export default function SettingsPage() {
           const data = docSnap.data();
           setOpenaiApiKey(data.openaiApiKey || '');
           setAssemblyAiApiKey(data.assemblyAiApiKey || '');
-          setTemplateContent(data.template || '');
+          const savedTemplate = data.template || defaultSummaryTemplate;
+          const htmlTemplate = marked.parse(savedTemplate);
+          setTemplateContent(htmlTemplate);
         }
       } catch (error) {
         console.error("Error fetching user settings:", error);
@@ -78,21 +84,51 @@ export default function SettingsPage() {
     }
   };
 
-  const handleTemplateUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-     const file = event.target.files?.[0];
-     if (file) {
-       const reader = new FileReader();
-       reader.onload = (e) => {
-         const text = e.target?.result as string;
-         setTemplateContent(text);
-         toast({ title: 'Template Loaded', description: 'Template content loaded. Remember to save.' });
-       };
-        reader.onerror = () => {
-            toast({ variant: 'destructive', title: 'Error', description: 'Failed to read template file.' });
+    const handleTemplateUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (file) {
+            setIsUploading(true); // Start loading
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                const arrayBuffer = e.target?.result as ArrayBuffer; // Read as ArrayBuffer for mammoth
+                if (arrayBuffer) {
+                    try {
+                        const result = await mammoth.convertToHtml({ arrayBuffer });
+                        console.log(result.value);
+                        setTemplateContent(result.value); // Set the converted HTML content
+                        toast({ title: 'Template Loaded', description: 'Template content loaded. Remember to save.' });
+                    } catch (error) {
+                        console.error('Error converting document:', error);
+                        toast({ variant: 'destructive', title: 'Error', description: 'Could not convert document.' });
+                    } finally {
+                         setIsUploading(false);
+                        if (templateInputRef.current) templateInputRef.current.value = '';
+                    }
+
+                } else {
+                     setIsUploading(false);
+                }
+            };
+            reader.onerror = () => {
+                toast({ variant: 'destructive', title: 'Error', description: 'Failed to read template file.' });
+                setIsUploading(false);
+            };
+            reader.readAsArrayBuffer(file); // Read file as ArrayBuffer
         }
-       reader.readAsText(file);
-     }
-   };
+    };
+    const handleUseDefaultTemplate = async () => {
+        const htmlTemplate = marked.parse(defaultSummaryTemplate);
+        setTemplateContent(htmlTemplate);
+        if (templateInputRef.current) {
+            templateInputRef.current.value = ''; // Clear the file input value
+        }
+    };
+
+
+
+
+
+
 
 
   if (authLoading || isLoading) {
@@ -151,21 +187,28 @@ export default function SettingsPage() {
                         <Button type="button" variant="outline" size="sm" onClick={() => document.getElementById('templateInput')?.click()}>
                             <Upload className="mr-2 h-4 w-4" /> Upload Template
                         </Button>
-                         <Input id="templateInput" type="file" accept=".txt,.docx,.json,.md" className="hidden" onChange={handleTemplateUpload} />
+                         <Input id="templateInput" type="file" accept=".txt,.docx,.json,.md" className="hidden" onChange={handleTemplateUpload} ref={templateInputRef} />
                    </div>                   
-                   <Textarea
-                     id="template-content"
-                     placeholder="Paste your template content here (e.g., DOCX, TXT, JSON structure) or upload a file."
-                     value={templateContent}
-                     onChange={(e) => setTemplateContent(e.target.value)}
-                     className="min-h-[200px] focus:ring-accent"
-                   />
+                    {/* Replace Textarea with a div that renders HTML */}
+                    <div
+                        id="template-content"
+                        className="w-full min-h-[200px] max-h-[600px] overflow-y-auto border rounded-md p-2 prose max-w-full"
+                        contentEditable={true} // Allow editing directly in the div if needed
+                        dangerouslySetInnerHTML={{ __html: templateContent }}
+                        onBlur={(e) => setTemplateContent(e.currentTarget.innerHTML)} // Update state on blur if editable
+                    ></div>
                    <div className="flex justify-end items-center mt-2">                    
-                        <Button type="button" variant="outline" size="sm" onClick={() => setTemplateContent(defaultSummaryTemplate)}>Use Default Template</Button>
+                        <Button type="button" variant="outline" size="sm" onClick={handleUseDefaultTemplate}>Use Default Template</Button>
                    </div>
                    <p className="text-xs text-muted-foreground">
                      Provide an example document structure. The AI will use this to format the summary. You can paste content or upload a TXT/DOCX/JSON file.
                    </p>
+                   {/* Display loading message if uploading */}
+                   {isUploading && 
+                    <p className="text-xs text-muted-foreground">
+                        Uploading and processing document...
+                    </p>
+                    }
                  </div>
 
                  <Button type="submit" className="w-full bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isSaving}>
