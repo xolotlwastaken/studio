@@ -833,19 +833,19 @@ export default function Dashboard() {
                           Summary generation might be pending or failed silently. Check logs if issue persists.
                       </div>
                   ): (
-                      <Textarea
-                        readOnly
-                        value={selectedRecording.summary || 'Summary not available.'}
-                        className="flex-1 resize-none text-sm bg-muted/30 overflow-y-auto" // Use flex-1, make it resizable, and add scroll
-                        style={{ minHeight: '200px' }}
+                    <div
+                      className="w-full min-h-[200px] max-h-[600px] overflow-y-auto border rounded-md p-2 prose max-w-full bg-muted/30 flex-1"
+                      dangerouslySetInnerHTML={{ __html: selectedRecording.summary || 'Summary not available.' }}
                     />
+
+
                   )}
                  {/* Placeholder for Markdown rendering component */}
                     {/*  <ReactMarkdown>
                         {selectedRecording.summary || ''}
                     </ReactMarkdown> */}
                   {selectedRecording.summary && selectedRecording.status !== 'error' && (
-                      <Button variant="default" size="sm" className="mt-4 flex-shrink-0 bg-accent hover:bg-accent/90 text-accent-foreground" onClick={() => handleDownload('summary')}>
+                      <Button variant="outline" size="sm" className="mt-4 flex-shrink-0" onClick={() => handleDownload('summary')}>
                           <Download className="mr-2 h-4 w-4" /> Download Summary
                       </Button>
                   )}
