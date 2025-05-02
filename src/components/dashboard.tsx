@@ -573,6 +573,61 @@ export default function Dashboard() {
     URL.revokeObjectURL(link.href);
     toast({ title: 'Download Started', description: `${type.charAt(0).toUpperCase() + type.slice(1)} is downloading.` });
   };
+
+  const handleDownloadAsDocx = async (type: 'transcript' | 'summary') => {
+    if (!selectedRecording) return;
+  
+    const content = type === 'transcript' ? selectedRecording.transcript : selectedRecording.summary;
+    if (!content) {
+      toast({
+        variant: 'destructive',
+        title: 'Download Error',
+        description: `${type.charAt(0).toUpperCase() + type.slice(1)} is not available or empty.`,
+      });
+      return;
+    }
+  
+    try {
+      const response = await fetch('https://us-central1-scribet-f1901.cloudfunctions.net/generateDocx', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ html: content }),
+      });
+  
+      if (!response.ok) {
+        throw new Error('Failed to generate DOCX');
+      }
+  
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+  
+      const safeFileName = selectedRecording.name.replace(/[^a-z0-9.]/gi, '_').toLowerCase();
+      link.href = url;
+      link.download = `${safeFileName.split('.')[0]}_${type}.docx`;
+  
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+  
+      toast({
+        title: 'Download Started',
+        description: `${type.charAt(0).toUpperCase() + type.slice(1)} is downloading as .docx.`,
+      });
+    } catch (error) {
+      console.error(error);
+      toast({
+        variant: 'destructive',
+        title: 'Download Failed',
+        description: 'Could not generate or download the .docx file.',
+      });
+    }
+  };
+  
+
   const handleDeleteRecording = async (recordingId: string, audioUrl: string) => {
        if (!user) return;
        const confirmed = confirm('Are you sure you want to delete this recording?');
@@ -805,6 +860,11 @@ export default function Dashboard() {
                            <Download className="mr-2 h-4 w-4" /> Download Transcript
                        </Button>
                    )}
+                   {selectedRecording.transcript && !isEditingTranscript && (
+                       <Button variant="outline" size="sm" className="mt-4 flex-shrink-0" onClick={() => handleDownloadAsDocx('transcript')}>
+                           <Download className="mr-2 h-4 w-4" /> Download Transcript as Docx
+                       </Button>
+                   )}
                </CardContent>
             </Card>
 
@@ -847,6 +907,11 @@ export default function Dashboard() {
                   {selectedRecording.summary && selectedRecording.status !== 'error' && (
                       <Button variant="outline" size="sm" className="mt-4 flex-shrink-0" onClick={() => handleDownload('summary')}>
                           <Download className="mr-2 h-4 w-4" /> Download Summary
+                      </Button>
+                  )}
+                  {selectedRecording.summary && selectedRecording.status !== 'error' && (
+                      <Button variant="outline" size="sm" className="mt-4 flex-shrink-0" onClick={() => handleDownloadAsDocx('summary')}>
+                          <Download className="mr-2 h-4 w-4" /> Download Summary as Docx
                       </Button>
                   )}
                </CardContent>
