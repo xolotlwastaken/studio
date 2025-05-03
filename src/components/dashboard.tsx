@@ -21,7 +21,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubItem,
   SidebarMenuSubButton
- ,SidebarRail
+  ,SidebarRail
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -62,6 +62,7 @@ export default function Dashboard() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState('');
   const [progress, setProgress] = useState(0);
+  const [editedRecordingNames, setEditedRecordingNames] = useState<{ [id: string]: string }>({});
   const [editedTranscript, setEditedTranscript] = useState('');
   const [isEditingTranscript, setIsEditingTranscript] = useState(false);
 
@@ -83,6 +84,10 @@ export default function Dashboard() {
         } as Recording);
       });
       fetchedRecordings.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      const newEditedRecordingNames = fetchedRecordings.reduce((acc, rec) => {
+        acc[rec.id] = rec.name;
+        return acc;
+      }, {} as { [id: string]: string });
       setRecordings(fetchedRecordings);
       setIsLoadingRecordings(false);
       // Auto-select the latest recording if none is selected
@@ -110,6 +115,7 @@ export default function Dashboard() {
             setEditedTranscript(fetchedRecordings[0]?.transcript || '');
          }
       }
+      setEditedRecordingNames(newEditedRecordingNames);
 
 
     }, (error) => {
@@ -256,7 +262,7 @@ export default function Dashboard() {
             status: 'uploading', // Initial status
             audioFileName: storageFileName,
         });
-
+        setEditedRecordingNames(prev => ({ ...prev, [newRecordingRef.id]: fileName }));
         const recordingId = newRecordingRef.id;
         const storageFileNameRecordings = `${Date.now()}-${uniqueString}.${fileName.split('.').pop()}`;
         storageRefUpload = ref(storage, `users/${user.uid}/recordings/${recordingId}/audio/${storageFileNameRecordings}`);        
@@ -669,6 +675,38 @@ export default function Dashboard() {
        }
    };
 
+  const handleRecordingNameChange = (recordingId: string, newName: string) => {
+    setEditedRecordingNames(prev => ({ ...prev, [recordingId]: newName }));
+  };
+
+  const handleSaveRecordingName = async (recording: Recording, event: React.FormEvent) => {
+     event.preventDefault();
+    if (!user) return;
+
+    const newName = editedRecordingNames[recording.id];
+    if (newName === recording.name || !newName) return; // No change or empty name
+
+    const recordingDocRef = doc(db, 'users', user.uid, 'recordings', recording.id);
+    try {
+      await updateDoc(recordingDocRef, { name: newName });
+      setRecordings(prev =>
+        prev.map(rec => (rec.id === recording.id ? { ...rec, name: newName } : rec))
+      );
+      if (selectedRecording?.id === recording.id) {
+           setSelectedRecording(prev => prev ? { ...prev, name: newName } : null);
+      }
+      toast({ title: 'Recording Name Updated', description: `Recording name updated to ${newName}.` });
+    } catch (error) {
+      console.error('Error updating recording name:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Name Update Failed',
+        description: 'Could not update the recording name.',
+      });
+    }
+  };
+
+
 
 
   return (
@@ -717,7 +755,14 @@ export default function Dashboard() {
                 recordings.map((rec) => (
                   <SidebarMenuItem key={rec.id} >
                     <SidebarMenuButton
-                       isActive={selectedRecording?.id === rec.id}
+                      isActive={selectedRecording?.id === rec.id}
+                      className={`flex flex-row items-center ${
+                         selectedRecording?.id === rec.id
+                           ? 'bg-accent/30 hover:bg-accent/30 focus-visible:bg-accent/30' // Adjust colors as needed
+                           : 'hover:bg-muted/20 focus-visible:bg-muted/20' // Adjust hover color for unselected items
+                        }`}
+                      
+                       
                        onClick={() => handleSelectRecording(rec)}
                        tooltip={{ children: rec.name, side: 'right', align: 'center' }}
                        disabled={isProcessing} // Disable selecting other recordings while one is processing
@@ -728,7 +773,21 @@ export default function Dashboard() {
                         {rec.status === 'completed' && <FileText className="text-green-500" />}
                         {rec.status === 'error' && <FileText className="text-red-500"/>}
 
-                      <span className="group-data-[collapsible=icon]:hidden flex-1 truncate">{rec.name}</span>
+                      
+                           <form className="group-data-[collapsible=icon]:hidden flex-1 truncate" onSubmit={(e) => handleSaveRecordingName(rec, e)}>
+                              <Input
+                                className="border-none bg-transparent px-1 py-0 focus-visible:outline-none"
+                                type="text"
+                                value={
+                                  editedRecordingNames[rec.id] === undefined
+                                    ? rec.name
+                                    : editedRecordingNames[rec.id]
+                                }
+                                onChange={(e) => handleRecordingNameChange(rec.id, e.target.value)}
+                                onBlur={(e) => handleSaveRecordingName(rec, e as any)} // Explicit type assertion
+                              />
+                           </form>
+
                       {!isDeleting && (
                                 <Button
                                     variant="ghost"
@@ -857,7 +916,7 @@ export default function Dashboard() {
 
                    {selectedRecording.transcript && !isEditingTranscript && (
                        <Button variant="outline" size="sm" className="mt-4 flex-shrink-0" onClick={() => handleDownload('transcript')}>
-                           <Download className="mr-2 h-4 w-4" /> Download Transcript
+                           <Download className="mr-2 h-4 w-4" /> Download Transcript as Txt
                        </Button>
                    )}
                    {selectedRecording.transcript && !isEditingTranscript && (
@@ -906,7 +965,7 @@ export default function Dashboard() {
                     </ReactMarkdown> */}
                   {selectedRecording.summary && selectedRecording.status !== 'error' && (
                       <Button variant="outline" size="sm" className="mt-4 flex-shrink-0" onClick={() => handleDownload('summary')}>
-                          <Download className="mr-2 h-4 w-4" /> Download Summary
+                          <Download className="mr-2 h-4 w-4" /> Download Summary as Txt
                       </Button>
                   )}
                   {selectedRecording.summary && selectedRecording.status !== 'error' && (
