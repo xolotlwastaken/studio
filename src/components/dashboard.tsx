@@ -158,6 +158,7 @@ export default function Dashboard() {
   };
 
   const startRecording = async () => {
+    setAudioChunks([]);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       // Use a common MIME type, browsers might vary support. audio/webm is widely supported.
@@ -173,34 +174,49 @@ export default function Dashboard() {
       setMediaRecorder(recorder);
 
       recorder.ondataavailable = (event) => {
+         console.log("Data available, size:", event.data.size);
          if (event.data.size > 0) { // Ensure blob is not empty
              setAudioChunks((prev) => [...prev, event.data]);
          }
       };
 
       recorder.onstop = async () => {
-        const mimeType = recorder.mimeType || 'audio/webm'; // Get actual mimeType used
-        console.log("Recording stopped, MimeType:", mimeType, "Chunks:", audioChunks.length);
-        if (audioChunks.length === 0) {
-            console.warn("No audio chunks recorded.");
-            toast({ variant: 'destructive', title: 'Recording Error', description: 'No audio data was captured.' });
-            stream.getTracks().forEach(track => track.stop()); // Stop stream tracks
-            setIsRecording(false); // Ensure state is reset
-            return;
-        }
-        const audioBlob = new Blob(audioChunks, { type: mimeType });
-        setAudioChunks([]); // Clear chunks immediately
-        // Determine file extension based on mime type
-        const fileExtension = mimeType.split('/')[1].split(';')[0] || 'webm';
-        await uploadAudio(audioBlob, `recording-${Date.now()}.${fileExtension}`);
-        stream.getTracks().forEach(track => track.stop()); // Stop the media stream tracks
+          setTimeout(async () => {
+              const mimeType = recorder.mimeType || 'audio/webm'; // Get actual mimeType used
+              console.log("Recording stopped, MimeType:", mimeType);
+              let finalChunks: Blob[] = [];
+              setAudioChunks(prevChunks => {
+                  finalChunks = [...prevChunks]; // Capture current chunks
+                  return []; // Clear chunks immediately
+              });
+
+              console.log("Recording stopped, Chunks:", finalChunks.length);
+              if (finalChunks.length === 0) {
+                  console.warn("No audio chunks recorded.");
+                  toast({
+                      variant: 'destructive',
+                      title: 'Recording Error',
+                      description: 'No audio data was captured.'
+                  });
+                  stream.getTracks().forEach(track => track.stop()); // Stop stream tracks
+                  setIsRecording(false); // Ensure state is reset
+                  return;
+              }
+              const audioBlob = new Blob(finalChunks, {type: mimeType});
+              // Determine file extension based on mime type
+              const fileExtension = mimeType.split('/')[1].split(';')[0] || 'webm';
+              await uploadAudio(audioBlob, `recording-${Date.now()}.${fileExtension}`);
+              stream.getTracks().forEach(track => track.stop()); // Stop the media stream tracks
+          }, 50);
+
+
       };
 
        recorder.onerror = (event: Event) => {
            console.error("MediaRecorder error:", event);
            toast({ variant: 'destructive', title: 'Recording Error', description: 'An error occurred during recording.' });
            setIsRecording(false);
-           setAudioChunks([]);
+           
            stream.getTracks().forEach(track => track.stop());
        };
 
@@ -235,6 +251,8 @@ export default function Dashboard() {
   };
 
   const uploadAudio = async (audioBlob: Blob, fileName: string) => {
+     console.log("uploadAudio called");
+
     if (!user) return;
     if (audioBlob.size === 0) {
          toast({ variant: 'destructive', title: 'Upload Error', description: 'Cannot upload empty file.' });
@@ -268,9 +286,11 @@ export default function Dashboard() {
         storageRefUpload = ref(storage, `users/${user.uid}/recordings/${recordingId}/audio/${storageFileNameRecordings}`);        
 
          await uploadBytes(storageRef, audioBlob);
+         
         const downloadURL = await getDownloadURL(uploadTask.ref);
 
         await updateDoc(doc(db, `users/${user.uid}/recordings`, recordingId), {
+            audioUrl: downloadURL,
             status: 'uploaded', // Update status to uploaded
         });
 
@@ -290,6 +310,8 @@ export default function Dashboard() {
           setRecordings(prev => [newRecData, ...prev].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()));
           setSelectedRecording(newRecData);
           setIsEditingTranscript(false); // Ensure editing is off
+          setAudioChunks([]); // only clear chunks if we made it here
+          console.log("Clearing audio chunks in uploadAudio");
           setEditedTranscript(''); // Clear any previous edits
 
         // Trigger the processing flow
