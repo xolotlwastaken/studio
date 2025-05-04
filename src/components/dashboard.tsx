@@ -580,6 +580,69 @@ export default function Dashboard() {
       }
   }
 
+    const handleRegenerateSummary = async () => {
+        if (!selectedRecording || !userTemplate) return;
+
+        const recordingDocRef = doc(db, 'users', user.uid, 'recordings', selectedRecording.id);
+
+        setIsProcessing(true);
+        setProcessingStatus('Re-generating summary...');
+        setProgress(10);
+
+        try {
+            // Update recording status in Firestore and local state
+            await updateDoc(recordingDocRef, { status: 'summarizing' });
+            setSelectedRecording(prev => prev ? { ...prev, status: 'summarizing' } : null);
+            setProgress(40);
+
+            // Perform summarization
+            const summaryResult = await summarizeTranscriptWithTemplate({
+                transcript: selectedRecording.transcript || '',
+                template: userTemplate,
+            });
+            setProgress(80);
+            const newSummary = summaryResult.summary;
+
+            // Update Firestore and local state with new summary and 'completed' status
+            await updateDoc(recordingDocRef, { summary: newSummary, status: 'completed' });
+            setSelectedRecording(prev => prev ? { ...prev, summary: newSummary, status: 'completed' } : null);
+
+            setProgress(100);
+            setProcessingStatus('Summary re-generated!');
+            toast({
+                title: 'Summary Re-generated',
+                description: 'The summary has been successfully re-generated.'
+            });
+        } catch (error: any) {
+            console.error('Error re-generating summary:', error);
+            const errorMsg = `Failed to re-generate summary: ${error.message || 'Unknown error'}`;
+
+            try {
+                // Update Firestore and local state with 'error' status and error message
+                await updateDoc(recordingDocRef, { status: 'error', summary: errorMsg });
+                setSelectedRecording(prev => prev ? { ...prev, status: 'error', summary: errorMsg } : null);
+
+                toast({
+                    variant: 'destructive',
+                    title: 'Summary Regeneration Failed',
+                    description: errorMsg,
+                });
+            } catch (updateError) {
+                console.error("Failed to update recording status to error:", updateError);
+
+                  toast({
+                    variant: 'destructive',
+                    title: 'Summary Regeneration Failed',
+                    description: errorMsg + " Failed to update error in firestore",
+                });
+            }
+
+            setProcessingStatus(errorMsg); // Update processing status to show error
+        } finally {
+            setIsProcessing(false);
+            setProgress(0);
+        }
+    };
 
   const handleDownload = (type: 'transcript' | 'summary') => {
     if (!selectedRecording) return;
@@ -738,7 +801,7 @@ export default function Dashboard() {
           
           <div className="flex items-center gap-2 p-2">
              <FileText className="h-6 w-6 text-primary" />
-             <h1 className="text-xl font-semibold flex-1 overflow-hidden whitespace-nowrap group-data-[collapsible=icon]:hidden">Smart Scribe</h1>
+             <h1 className="text-xl font-semibold flex-1 overflow-hidden whitespace-nowrap group-data-[collapsible=icon]:hidden">Scribet</h1>
              <SidebarTrigger className="ml-auto group-data-[collapsible=icon]:hidden"/>
             
 
@@ -889,7 +952,7 @@ export default function Dashboard() {
               <CardHeader className="flex flex-row items-center justify-between flex-shrink-0">
                 <div>
                     <CardTitle>Transcript</CardTitle>
-                    <CardDescription className="truncate">{selectedRecording.name}</CardDescription>
+                    <CardDescription className="truncate mt-1">{selectedRecording.name}</CardDescription>
                 </div>
                  {selectedRecording.transcript && !isEditingTranscript && (
                      <Button variant="ghost" size="icon" onClick={() => setIsEditingTranscript(true)} disabled={isProcessing}>
@@ -952,10 +1015,24 @@ export default function Dashboard() {
              {/* Summary Card */}
              <Card className="shadow-md flex flex-col">
               <CardHeader className="flex-shrink-0">
-                <CardTitle>Summary</CardTitle>
-                 <CardDescription>Formatted based on your template</CardDescription>
+                  <div className="flex flex-row justify-between items-center">
+                    <div>
+                        <CardTitle>Summary</CardTitle>
+                        <CardDescription className="mt-1">Formatted based on your template</CardDescription>
+                    </div>
+                    {(selectedRecording.status === 'completed' || selectedRecording.status === 'error') && userTemplate && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleRegenerateSummary}
+                            disabled={isProcessing}
+                        >
+                            Regenerate
+                        </Button>
+                    )}
+                  </div>
               </CardHeader>
-               <CardContent className="flex-1 flex flex-col min-h-0">
+              <CardContent className="flex-1 flex flex-col min-h-0">
                  {/* Loading/Error/Content for Summary */}
                   {selectedRecording.status === 'summarizing' || (selectedRecording.status === 'transcribing' && !selectedRecording.summary) ? (
                       <div className="flex-1 flex items-center justify-center text-muted-foreground">
@@ -979,7 +1056,6 @@ export default function Dashboard() {
                       dangerouslySetInnerHTML={{ __html: selectedRecording.summary || 'Summary not available.' }}
                     />
 
-
                   )}
                  {/* Placeholder for Markdown rendering component */}
                     {/*  <ReactMarkdown>
@@ -1001,7 +1077,7 @@ export default function Dashboard() {
         ) : (
            <Card className="text-center py-12 shadow-md flex-1 flex flex-col items-center justify-center">
             <CardHeader>
-                <CardTitle>Welcome to Smart Scribe!</CardTitle>
+                <CardTitle>Welcome to Scribet!</CardTitle>
                 <CardDescription>Record or upload an audio file to get started.</CardDescription>
             </CardHeader>
             <CardContent>
