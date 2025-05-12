@@ -117,8 +117,7 @@ export default function SettingsPage() {
         }
     };
     const handleUseDefaultTemplate = async () => {
-        const htmlTemplate = marked.parse(defaultSummaryTemplate);
-        setTemplateContent(htmlTemplate);
+        setTemplateContent(defaultSummaryTemplate);
         if (templateInputRef.current) {
             templateInputRef.current.value = ''; // Clear the file input value
         }
