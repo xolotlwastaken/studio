@@ -1,8 +1,18 @@
 const functions = require("firebase-functions");
 const htmlToDocx = require("html-to-docx");
+const admin = require("firebase-admin");
+const stripeFunctions = require("./stripe");
+
 const cors = require("cors")({
   origin: true,
 });
+
+
+admin.initializeApp();
+
+exports.createStripeCheckoutSession =
+  stripeFunctions.createStripeCheckoutSession;
+exports.handleStripeWebhook = stripeFunctions.handleStripeWebhook;
 
 exports.generateDocx = functions.https.onRequest((req, res) => {
   cors(req, res, async () => { // Use cors middleware here
