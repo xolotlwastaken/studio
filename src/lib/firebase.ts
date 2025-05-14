@@ -46,6 +46,4 @@ if (typeof window !== 'undefined') {
   });
 }
 
-export const initializeFirebaseApp = () => {
-  // No need to initialize here anymore since it's done at the top level
-}
+export { app };
