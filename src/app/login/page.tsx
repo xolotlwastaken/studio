@@ -1,10 +1,11 @@
 'use client';
 
 import { useState } from 'react';
+import { addDays } from 'date-fns';
 import { useRouter } from 'next/navigation';
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { getFirestore, doc, setDoc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
@@ -12,6 +13,7 @@ import { auth } from '@/lib/firebase';
 import { Github, Chrome } from 'lucide-react';
 
 
+import { Input } from '@/components/ui/input';
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -36,9 +38,20 @@ export default function LoginPage() {
         await createUserWithEmailAndPassword(auth, email, password);
         toast({ title: 'Success', description: 'Account created successfully!' });
         setEmail('');
-        setPassword('');
-        setConfirmPassword('');
+        setPassword(''); // Clear password fields after successful signup
+ setConfirmPassword(''); // Clear password fields after successful signup
+        // Create user document and set trial expiration
+ if (auth.currentUser) {
+ const db = getFirestore();
+ const userRef = doc(db, 'users', auth.currentUser.uid);
+ const trialEndDate = addDays(new Date(), 1); // 1 day trial
+ await setDoc(userRef, { isOnTrial: true, trialExpirationDate: trialEndDate });
+        }
+        // Set trial expiration for new email/password users
+        await setTrialExpiration(auth.currentUser?.uid);
         setIsSignUp(false);
+        // Redirect to root after successful signup
+        router.push('/');
       } else {
         await signInWithEmailAndPassword(auth, email, password);
         toast({ title: 'Success', description: 'Logged in successfully!' });
@@ -65,14 +78,46 @@ export default function LoginPage() {
     }
   };
 
+  // Modified to create user document if it doesn't exist, instead of just updating
+  const setTrialExpiration = async (uid: string | undefined) => {
+    if (!uid) return;
+    const db = getFirestore();
+    const userRef = doc(db, 'users', uid);
+    const trialEndDate = addDays(new Date(), 1); // 1 day trial
+    try {
+      // Use setDoc with merge: true to create if not exists and update if exists
+      await setDoc(userRef, { isOnTrial: true, trialExpirationDate: trialEndDate }, { merge: true });
+      console.log('User document created/updated and trial expiration set successfully');
+    } catch (error) {
+      console.error('Error creating/updating user document and setting trial expiration:', error);
+    }
+
+
+  };
+
   const handleGoogleSignIn = async () => {
     const provider = new GoogleAuthProvider();
+    // Optional: Add custom parameters here if needed, e.g., scope or prompt
+    // provider.addScope('https://www.googleapis.com/auth/calendar.events');
+    // provider.setCustomParameters({
+    //   'login_hint': 'user@example.com'
+    // });
+
     try {
-      await signInWithPopup(auth, provider);
+      const result = await signInWithPopup(auth, provider);
       toast({ title: 'Success', description: 'Logged in with Google successfully!' });
+
+      // Check if it's a new user to create document and set trial
+      const isNewUser = result.operationType === 'link' && result.user.metadata.creationTime === result.user.metadata.lastSignInTime;
+      // Fallback check for new user based on metadata if operationType is not 'link' (can happen on first sign-in)
+      const isNewUserFallback = result.operationType !== 'link' && result.user.metadata.creationTime === result.user.metadata.lastSignInTime;
+
+      if (isNewUser || isNewUserFallback) {
+        await setTrialExpiration(auth.currentUser?.uid);
+      }
+
       router.push('/');
     } catch (error: any) {
-      console.error('Google Sign-In error:', error);
        let description = error.message || 'Could not sign in with Google.';
        if (error.code === 'auth/popup-closed-by-user') {
             description = 'Google Sign-In cancelled.';

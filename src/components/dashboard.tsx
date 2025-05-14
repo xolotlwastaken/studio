@@ -22,6 +22,7 @@ import {
   SidebarMenuSubItem,
   SidebarMenuSubButton
   ,SidebarRail
+ ,SidebarContentTop
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -65,6 +66,7 @@ export default function Dashboard() {
   const [editedRecordingNames, setEditedRecordingNames] = useState<{ [id: string]: string }>({});
   const [editedTranscript, setEditedTranscript] = useState('');
   const [isEditingTranscript, setIsEditingTranscript] = useState(false);
+  const [trialRemaining, setTrialRemaining] = useState<string | null>(null);
 
 
   useEffect(() => {
@@ -139,6 +141,48 @@ export default function Dashboard() {
 
     };
     fetchTemplate();
+
+    // Fetch and display trial expiration
+    const fetchTrialExpiration = async () => {
+        if (!user) return;
+        console.log("Fetching user document for trial expiration:", user.uid);
+        try {
+            const userDocRef = doc(db, 'users', user.uid);
+            const userDocSnap = await getDoc(userDocRef);
+
+            if (userDocSnap.exists()) {
+                const userData = userDocSnap.data();
+                console.log("User document found:", userData);
+                const trialExpirationDate = userData.trialExpirationDate;
+
+                if (trialExpirationDate && trialExpirationDate.toDate) {
+                    console.log("trialExpirationDate field exists:", trialExpirationDate);
+                    const expirationDate = trialExpirationDate.toDate();
+                    console.log("Converted to Date:", expirationDate);
+                    const now = new Date();
+                    const diffInMs = expirationDate.getTime() - now.getTime();
+                    console.log("Difference in milliseconds:", diffInMs);
+
+                    if (diffInMs > 0) {
+                        const diffInSeconds = Math.floor(diffInMs / 1000);
+                        const days = Math.floor(diffInSeconds / (60 * 60 * 24));
+                        const hours = Math.floor((diffInSeconds % (60 * 60 * 24)) / (60 * 60));
+                        const minutes = Math.floor((diffInSeconds % (60 * 60)) / 60);
+
+                        const remainingString = `Time remaining in the trial: ${days}d ${hours}h ${minutes}m`;
+                        console.log("Calculated remaining time:", remainingString);
+                        setTrialRemaining(remainingString);
+                    } else {
+                         console.log("Trial has expired or is ending soon.");
+                         setTrialRemaining("Trial ended");
+                    }
+                } else {
+                     console.log("trialExpirationDate field not found or not a valid timestamp.");
+                 }
+            } else { console.log("User document does not exist."); }
+        } catch (error) { console.error("Error fetching trial expiration:", error); }
+    };
+    fetchTrialExpiration();
 
 
     return () => unsubscribe();
@@ -803,8 +847,6 @@ export default function Dashboard() {
              <FileText className="h-6 w-6 text-primary" />
              <h1 className="text-xl font-semibold flex-1 overflow-hidden whitespace-nowrap group-data-[collapsible=icon]:hidden">Scribet</h1>
              <SidebarTrigger className="ml-auto group-data-[collapsible=icon]:hidden"/>
-            
-
           </div>
         </SidebarHeader>
         <SidebarContent className="p-0">
@@ -927,6 +969,12 @@ export default function Dashboard() {
       <SidebarInset className="p-4 md:p-6 flex flex-col">
         <div className="flex items-center justify-between mb-4 flex-shrink-0">
             <h1 className="text-2xl font-semibold">Dashboard</h1>
+            {/* Trial Expiration Display */}
+            {trialRemaining && ( 
+              <div className="text-sm text-muted-foreground flex items-right justify-end flex-1 ml-auto mr-2">
+                {trialRemaining}
+              </div>
+            )}
             <SidebarTrigger className="md:hidden" />
         </div>
 
@@ -1057,10 +1105,6 @@ export default function Dashboard() {
                     />
 
                   )}
-                 {/* Placeholder for Markdown rendering component */}
-                    {/*  <ReactMarkdown>
-                        {selectedRecording.summary || ''}
-                    </ReactMarkdown> */}
                   {selectedRecording.summary && selectedRecording.status !== 'error' && (
                       <Button variant="outline" size="sm" className="mt-4 flex-shrink-0" onClick={() => handleDownload('summary')}>
                           <Download className="mr-2 h-4 w-4" /> Download Summary as Txt
