@@ -111,16 +111,12 @@ exports.handleStripeWebhook = functions.https.onRequest(async (req, res) => {
           const stripeSubscriptionId = session.subscription;
           const userId = session.metadata.userId;
 
-          let subscriptionEndDate = null;
           if (userId) {
             try {
-              // Retrieve the subscription details to get the current_period_end
-              const subscription = await stripe.subscriptions.retrieve(stripeSubscriptionId);
-              subscriptionEndDate = subscription.current_period_end * 1000; // Convert to milliseconds
-
               await admin.firestore().collection("users").doc(userId).update({
                 stripeCustomerId: stripeCustomerId,
                 stripeSubscriptionId: stripeSubscriptionId,
+                isOnTrial: false,
                 isSubscribed: true,
               });
               console.log(`User ${userId} updated with subscription info.`);
