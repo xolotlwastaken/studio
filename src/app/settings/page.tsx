@@ -47,8 +47,7 @@ export default function SettingsPage() {
           setOpenaiApiKey(data.openaiApiKey || '');
           setAssemblyAiApiKey(data.assemblyAiApiKey || '');
           const savedTemplate = data.template || defaultSummaryTemplate;
-          const htmlTemplate = marked.parse(savedTemplate);
-          setTemplateContent(htmlTemplate);
+          setTemplateContent(savedTemplate);
         }
       } catch (error) {
         console.error("Error fetching user settings:", error);
