@@ -71,7 +71,7 @@ functions.https.onCall(async (request) => {
         userId: userId,
       },
       success_url:
-        `${config.app.url}/success?session_id={CHECKOUT_SESSION_ID}`,
+        `${config.app.url}/checkout-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${config.app.url}/subscription`,
       automatic_tax: {enabled: true},
     });
@@ -97,7 +97,7 @@ functions.https.onCall(async (request) => {
 
 exports.handleStripeWebhook = functions.https.onRequest(async (req, res) => {
   const sig = req.headers["stripe-signature"];
-  const webhookSecret = config.webhook.secret;
+  const webhookSecret = config.stripe_webhook.secret;
   let event;
 
   try {
