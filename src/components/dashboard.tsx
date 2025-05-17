@@ -68,6 +68,8 @@ export default function Dashboard() {
   const [editedTranscript, setEditedTranscript] = useState('');
   const [isEditingTranscript, setIsEditingTranscript] = useState(false);
   const [trialRemaining, setTrialRemaining] = useState<string | null>(null);
+  const [userSubscriptionPlan, setUserSubscriptionPlan] = useState<string | null>(null);
+  const [canRecordOrUpload, setCanRecordOrUpload] = useState(true);
 
 
   useEffect(() => {
@@ -143,10 +145,10 @@ export default function Dashboard() {
     };
     fetchTemplate();
 
-    // Fetch and display trial expiration
-    const fetchTrialExpiration = async () => {
+    // Fetch user subscription status or trial expiration
+    const fetchUserStatus = async () => {
         if (!user) return;
-        console.log("Fetching user document for trial expiration:", user.uid);
+        console.log("Fetching user document for status:", user.uid);
         try {
             const userDocRef = doc(db, 'users', user.uid);
             const userDocSnap = await getDoc(userDocRef);
@@ -154,79 +156,32 @@ export default function Dashboard() {
             if (userDocSnap.exists()) {
                 const userData = userDocSnap.data();
                 console.log("User document found:", userData);
-                const trialExpirationDate = userData.trialExpirationDate;
 
-                if (trialExpirationDate && trialExpirationDate.toDate) {
-                    console.log("trialExpirationDate field exists:", trialExpirationDate);
-                    const expirationDate = trialExpirationDate.toDate();
-                    console.log("Converted to Date:", expirationDate);
+                if (userData.isSubscribed === true && userData.planType) {
+                    // User has an active subscription
+                    setUserSubscriptionPlan(`Current Plan: ${userData.planType.toUpperCase()}`);
+                    setTrialRemaining(null); // Hide trial info
+                } else if (userData.trialExpirationDate && userData.trialExpirationDate.toDate) {
+                    // User is on trial and trialExpirationDate exists
+                    const expirationDate = userData.trialExpirationDate.toDate();
                     const now = new Date();
                     const diffInMs = expirationDate.getTime() - now.getTime();
-                    console.log("Difference in milliseconds:", diffInMs);
-
                     if (diffInMs > 0) {
                         const diffInSeconds = Math.floor(diffInMs / 1000);
                         const days = Math.floor(diffInSeconds / (60 * 60 * 24));
                         const hours = Math.floor((diffInSeconds % (60 * 60 * 24)) / (60 * 60));
                         const minutes = Math.floor((diffInSeconds % (60 * 60)) / 60);
-
-                        const remainingString = `Time remaining in the trial: ${days}d ${hours}h ${minutes}m`;
-                        console.log("Calculated remaining time:", remainingString);
-                        setTrialRemaining(remainingString);
+                        setTrialRemaining(`Trial remaining: ${days}d ${hours}h ${minutes}m`);
                     } else {
-                         console.log("Trial has expired or is ending soon.");
-                         setTrialRemaining("Trial ended");
+                        setTrialRemaining("Trial ended");
+                        setCanRecordOrUpload(false); // Set state when trial ends
                     }
-                } else {
-                     console.log("trialExpirationDate field not found or not a valid timestamp.");
-                 }
-            } else { console.log("User document does not exist."); }
-        } catch (error) { console.error("Error fetching trial expiration:", error); }
+ } else { setTrialRemaining(null); } // Hide trial info if no subscription or trial
+            }
+        } catch (error) { console.error("Error fetching user status:", error); }
     };
-    fetchTrialExpiration();
 
-    // // Fetch and display trial expiration
-    // const fetchTrialExpiration = async () => {
-    //     if (!user) return;
-    //     console.log("Fetching user document for trial expiration:", user.uid);
-    //     try {
-    //         const userDocRef = doc(db, 'users', user.uid);
-    //         const userDocSnap = await getDoc(userDocRef);
-
-    //         if (userDocSnap.exists()) {
-    //             const userData = userDocSnap.data();
-    //             console.log("User document found:", userData);
-    //             const trialExpirationDate = userData.trialExpirationDate;
-
-    //             if (trialExpirationDate && trialExpirationDate.toDate) {
-    //                 console.log("trialExpirationDate field exists:", trialExpirationDate);
-    //                 const expirationDate = trialExpirationDate.toDate();
-    //                 console.log("Converted to Date:", expirationDate);
-    //                 const now = new Date();
-    //                 const diffInMs = expirationDate.getTime() - now.getTime();
-    //                 console.log("Difference in milliseconds:", diffInMs);
-
-    //                 if (diffInMs > 0) {
-    //                     const diffInSeconds = Math.floor(diffInMs / 1000);
-    //                     const days = Math.floor(diffInSeconds / (60 * 60 * 24));
-    //                     const hours = Math.floor((diffInSeconds % (60 * 60 * 24)) / (60 * 60));
-    //                     const minutes = Math.floor((diffInSeconds % (60 * 60)) / 60);
-
-    //                     const remainingString = `Time remaining in the trial: ${days}d ${hours}h ${minutes}m`;
-    //                     console.log("Calculated remaining time:", remainingString);
-    //                     setTrialRemaining(remainingString);
-    //                 } else {
-    //                      console.log("Trial has expired or is ending soon.");
-    //                      setTrialRemaining("Trial ended");
-    //                 }
-    //             } else {
-    //                  console.log("trialExpirationDate field not found or not a valid timestamp.");
-    //              }
-    //         } else { console.log("User document does not exist."); }
-    //     } catch (error) { console.error("Error fetching trial expiration:", error); }
-    // };
-    // fetchTrialExpiration();
-
+    fetchUserStatus();
 
     return () => unsubscribe();
    // Update dependencies: remove selectedRecording if updates cause issues, add isEditingTranscript
@@ -245,6 +200,11 @@ export default function Dashboard() {
   };
 
   const startRecording = async () => {
+    // Check subscription/trial before starting recording
+    if (!canRecordOrUpload) {
+       toast({ variant: 'destructive', title: 'Free Trial Ended', description: 'Your free trial has ended. Please subscribe to continue recording.' });
+       return;
+    }
     setAudioChunks([]);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -325,7 +285,9 @@ export default function Dashboard() {
   };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+
     const file = event.target.files?.[0];
+    
     if (file && user) {
         // Reset input value to allow uploading the same file again
        event.target.value = '';
@@ -333,12 +295,17 @@ export default function Dashboard() {
             toast({ variant: 'destructive', title: 'Invalid File Type', description: 'Please upload an audio file.' });
             return;
        }
+
+    // Check subscription/trial before uploading
+    if (!canRecordOrUpload) {
+       toast({ variant: 'destructive', title: 'Free Trial Ended', description: 'Your free trial has ended. Please subscribe to upload audio files.' });
+       return;
+    }
       uploadAudio(file, file.name);
     }
   };
 
   const uploadAudio = async (audioBlob: Blob, fileName: string) => {
-     console.log("uploadAudio called");
 
     if (!user) return;
     if (audioBlob.size === 0) {
@@ -371,7 +338,7 @@ export default function Dashboard() {
         const recordingId = newRecordingRef.id;
         const storageFileNameRecordings = `${Date.now()}-${uniqueString}.${fileName.split('.').pop()}`;
         storageRefUpload = ref(storage, `users/${user.uid}/recordings/${recordingId}/audio/${storageFileNameRecordings}`);        
-
+       
          await uploadBytes(storageRef, audioBlob);
          
         const downloadURL = await getDownloadURL(uploadTask.ref);
@@ -1018,8 +985,13 @@ export default function Dashboard() {
       <SidebarInset className="p-4 md:p-6 flex flex-col">
         <div className="flex items-center justify-between mb-4 flex-shrink-0">
             <h1 className="text-2xl font-semibold">Dashboard</h1>
-            {/* Trial Expiration Display */}
-            {trialRemaining && ( 
+            {/* Subscription Plan or Trial Expiration Display */}
+            {userSubscriptionPlan && (
+                <div className="text-sm text-muted-foreground flex items-right justify-end flex-1 ml-auto mr-2">
+                   {userSubscriptionPlan}
+                </div>
+            )}
+            {!userSubscriptionPlan && trialRemaining && (
               <div className="text-sm text-muted-foreground flex items-right justify-end flex-1 ml-auto mr-2">
                 {trialRemaining}
               </div>
@@ -1117,7 +1089,7 @@ export default function Dashboard() {
                         <CardTitle>Summary</CardTitle>
                         <CardDescription className="mt-1">Formatted based on your template</CardDescription>
                     </div>
-                    {(selectedRecording.status === 'completed' || selectedRecording.status === 'error') && userTemplate && (
+                    {(selectedRecording.status === 'completed' || selectedRecording.status === 'error') && userTemplate && canRecordOrUpload && (
                         <Button
                             variant="outline"
                             size="sm"
