@@ -1,11 +1,18 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
+import { doc, getDoc, getFirestore } from "firebase/firestore";
 import { useRouter } from 'next/navigation';
 import { auth, app } from '@/lib/firebase'; // Assuming your firebase config is exported from here
 import { User } from 'firebase/auth';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import { useToast } from '@/hooks/use-toast';
+import { getFunctions, httpsCallable, connectFunctionsEmulator } from 'firebase/functions';
 import LoadingSpinner from '@/components/loading-spinner';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 
 // Assume 'auth' is initialized and exported from '@/lib/firebase'
 const SubscriptionPage: React.FC = () => {
@@ -32,7 +39,6 @@ const SubscriptionPage: React.FC = () => {
       description: 'Our best value for long-term users.',
       price: 299.99,
       priceDisplay: '$299.99/year',
-      id: 'yearly',
  features: ['Feature A', 'Feature B', 'Feature C', 'Feature D'],
     }
   ];
@@ -48,10 +54,14 @@ const SubscriptionPage: React.FC = () => {
     ? Math.round(((weeklyPrice * 52) - yearlyPlan.price) / (weeklyPrice * 52) * 100)
     : 0;
 
+  const { toast } = useToast();
+
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [subscribing, setSubscribing] = useState(false);
+  const [activePlan, setActivePlan] = useState<string | null>(null);
+  const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((currentUser) => {
@@ -61,6 +71,27 @@ const SubscriptionPage: React.FC = () => {
 
     return () => unsubscribe(); // Cleanup the listener on component unmount
   }, []);
+
+  useEffect(() => {
+    const fetchAndSetActivePlan = async () => {
+      if (user) {
+        const db = getFirestore(app);
+        try {
+          const userDocRef = doc(db, 'users', user.uid);
+          const userDocSnap = await getDoc(userDocRef);
+
+          if (userDocSnap.exists()) {
+            const userData = userDocSnap.data();
+            setActivePlan(userData.planType || null);
+          }
+        } catch (error) {
+          console.error("Error fetching user document:", error);
+        }
+      }
+    };
+
+    fetchAndSetActivePlan();
+  }, [user]); // Add user as a dependency
 
   const handleSubscribe = async (planId: string) => {
     if (!user) {
@@ -80,9 +111,20 @@ const SubscriptionPage: React.FC = () => {
       const functions = getFunctions(app);
       // Get a callable function reference to your cloud function
       const createStripeCheckoutSession = httpsCallable(functions, 'createStripeCheckoutSession');
+      
+      // Find the selected plan to get its type
+      const selectedPlan = plans.find(plan => plan.id === planId);
+      if (!selectedPlan) {
+        console.error("Selected plan not found.");
+        setSubscribing(false);
+        return;
+      }
 
       // Call the function with the required data
-      const result = await createStripeCheckoutSession({ plan: planId });
+      const result = await createStripeCheckoutSession({ 
+        plan: planId,
+      });
+
       // Redirect to the Stripe checkout page using the URL returned by the function
       window.location.assign(((result.data as any).url));
     } catch (error) {
@@ -90,6 +132,39 @@ const SubscriptionPage: React.FC = () => {
     } finally {
  setSubscribing(false);
     }
+  };
+
+  const handleCancelSubscription = async () => {
+    if (!user) {
+      console.error("User not logged in.");
+      router.push('/login');
+      return;
+
+    }
+    setSubscribing(true);
+    try {
+      const functions = getFunctions(app);
+      const cancelStripeSubscription = httpsCallable(functions, 'cancelStripeSubscription');
+
+      await cancelStripeSubscription();
+
+      // Update UI after successful cancellation
+      setActivePlan(null);
+      toast({
+        title: "Subscription Cancelled",
+        description: "Your subscription has been successfully cancelled.",
+      });
+    } catch (error: any) {
+      console.error('Error canceling subscription:', error);
+      toast({
+        title: "Cancellation Failed",
+        description: error.message || "There was an error canceling your subscription.",
+        variant: "destructive",
+      });
+    } finally {
+      setSubscribing(false);
+    }
+    setIsCancelDialogOpen(false); // Close the dialog after action
   };
 
   const handleBack = () => router.push("/");
@@ -119,7 +194,10 @@ const SubscriptionPage: React.FC = () => {
  <h1 className="text-4xl font-extrabold text-center mb-12 text-gray-900">Choose the Perfect Plan for You</h1>
  <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {plans.map((plan) => (
- <div key={plan.id} className="bg-white rounded-xl shadow-lg overflow-hidden transform transition duration-500 hover:scale-105 flex flex-col">
+ <div 
+ key={plan.id} 
+ className={`bg-white rounded-xl shadow-lg overflow-hidden transform transition duration-500 hover:scale-105 flex flex-col ${activePlan === plan.id ? 'border-4 border-blue-500' : ''}`}
+ >
  <div className="px-6 py-8 text-center">
  <h2 className="text-2xl font-bold text-gray-800 mb-4">{plan.title}</h2>
  <p className="text-gray-600 mb-6">{plan.description}</p>
@@ -138,9 +216,27 @@ const SubscriptionPage: React.FC = () => {
  </li>
  ))}
  </ul>
-            <button onClick={() => handleSubscribe(plan.id)} className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600" disabled={subscribing}>
-              Subscribe
-            </button>
+            {activePlan === plan.id ? (
+              <AlertDialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen}>
+              <AlertDialogTrigger asChild>
+               <button className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600" disabled={subscribing}>Cancel Plan</button>
+              </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Are you sure you want to cancel your subscription?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This action cannot be undone. Your subscription will be cancelled at the end of the current billing period.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleCancelSubscription} disabled={subscribing}>Confirm</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            ) : (
+              <button onClick={() => handleSubscribe(plan.id)} className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600" disabled={subscribing}>Subscribe</button>
+            )}
  </div>
           </div>
         ))}

@@ -13,9 +13,13 @@ if (!admin.apps.length) {
   admin.initializeApp();
 }
 
+// Stripe
 exports.createStripeCheckoutSession =
   stripeFunctions.createStripeCheckoutSession;
+exports.cancelStripeSubscription =
+  stripeFunctions.cancelStripeSubscription;
 exports.handleStripeWebhook = stripeFunctions.handleStripeWebhook;
+
 exports.checkTrialExpiration = checkTrialExpiration.checkTrialExpiration;
 
 exports.generateDocx = functions.https.onRequest((req, res) => {

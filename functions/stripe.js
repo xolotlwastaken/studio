@@ -19,8 +19,6 @@ const stripe = new Stripe(config.stripe.secret_key, {
 
 exports.createStripeCheckoutSession =
 functions.https.onCall(async (request) => {
-  console.log("Cloud Function Called!");
-  console.log("Context Auth:", request.auth); // Log the auth context
   const {plan} = request.data;
   const userId = request.auth.uid;
   console.log("Data:"); // Log the received data
@@ -68,6 +66,7 @@ functions.https.onCall(async (request) => {
         },
       ],
       metadata: {
+        planType: plan, // Include plan type in metadata
         userId: userId,
       },
       success_url:
@@ -120,6 +119,7 @@ exports.handleStripeWebhook = functions.https.onRequest(async (req, res) => {
           const stripeCustomerId = session.customer;
           const stripeSubscriptionId = session.subscription;
           const userId = session.metadata.userId;
+          const planType = session.metadata.planType;
 
           if (userId) {
             try {
@@ -128,6 +128,7 @@ exports.handleStripeWebhook = functions.https.onRequest(async (req, res) => {
                 stripeSubscriptionId: stripeSubscriptionId,
                 isOnTrial: false,
                 isSubscribed: true,
+                planType: planType,
               });
               console.log(`User ${userId} updated with subscription info.`);
             } catch (error) {
@@ -162,11 +163,8 @@ exports.handleStripeWebhook = functions.https.onRequest(async (req, res) => {
                 .doc(userIdToDeleteSubscription)
                 .update({
                   isSubscribed: false,
-                  stripeSubscriptionId:
-                  admin
-                      .firestore
-                      .FieldValue
-                      .delete(), // Remove subscription ID
+                  stripeSubscriptionId: admin.firestore.FieldValue.delete(),
+                  planType: admin.firestore.FieldValue.delete(),
                 });
             console.log(
                 `User ${userIdToDeleteSubscription} 
@@ -194,4 +192,60 @@ exports.handleStripeWebhook = functions.https.onRequest(async (req, res) => {
 
   // Return a response to acknowledge receipt of the event
   res.json({received: true});
+});
+
+exports.cancelStripeSubscription =
+functions.https.onCall(async (request) => {
+  if (!request.auth) {
+    throw new functions.https.HttpsError(
+        "unauthenticated",
+        "The function must be called while authenticated.",
+    );
+  }
+
+  const userId = request.auth.uid;
+  console.log("Attempting to cancel subscription for user:", userId);
+
+  try {
+    // Get the user's Stripe subscription ID from Firestore
+    const userDocRef = admin.firestore().collection("users").doc(userId);
+    const userDoc = await userDocRef.get();
+
+    if (!userDoc.exists) {
+      throw new functions.https.HttpsError(
+          "not-found",
+          "User document not found.",
+      );
+    }
+
+    const {stripeSubscriptionId} = userDoc.data();
+
+    if (!stripeSubscriptionId) {
+      console.log("User does not have an active subscription.");
+      return {success: true, message: "No active subscription to cancel."};
+    }
+
+    // Cancel the subscription in Stripe
+    await stripe.subscriptions.cancel(stripeSubscriptionId);
+
+    // Update the user's document to reflect the cancellation
+    await userDocRef.update({
+      isSubscribed: false,
+      stripeSubscriptionId: admin.firestore.FieldValue.delete(),
+      planType: admin.firestore.FieldValue.delete(),
+    });
+
+    console.log(
+        "Subscription canceled successfully for user:",
+        userId,
+    );
+    return {success: true};
+  } catch (error) {
+    console.error("Error canceling subscription:", error);
+    throw new functions.https.HttpsError(
+        "internal",
+        "Failed to cancel subscription.",
+        error,
+    );
+  }
 });
