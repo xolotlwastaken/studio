@@ -21,14 +21,8 @@ const TranscribeAudioInputSchema = z.object({ // updated name
 export type TranscribeAudioInput = z.infer<
   typeof TranscribeAudioInputSchema
 >;
-
-const TranscribeAudioInputSchemaUpdated = z.object({
-  audioFileName: z.string(),
-  userId: z.string(),
-});
-export type TranscribeAudioInputUpdated = z.infer<typeof TranscribeAudioInputSchemaUpdated>;
     
-    const TranscribeAudioOutputSchema = z.object({
+const TranscribeAudioOutputSchema = z.object({
   text: z.string().describe('The transcribed text.'),
 });
 export type TranscribeAudioOutput = z.infer<typeof TranscribeAudioOutputSchema>;
@@ -46,7 +40,7 @@ const transcribeAudioFlow = ai.defineFlow<
     inputSchema: TranscribeAudioInputSchema,
     outputSchema: TranscribeAudioOutputSchema,
   },
-  async ({ audioFileName, userId }) => {
+  async ({ audioFileName }) => {
     // --- Retrieve AssemblyAI API Key ---
     const assemblyAiApiKey = process.env.ASSEMBLYAI_API_KEY;
 
