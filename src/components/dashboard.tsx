@@ -472,7 +472,7 @@ export default function Dashboard() {
         // 3. Call transcription flow
           let transcript = '';
            try {
-               const transcriptionResult = await transcribeAudio({ audioFileName: audio_url, userId: user.uid });
+               const transcriptionResult = await transcribeAudio({ audioFileName: audio_url });
                 transcript = transcriptionResult.text;
                 setProgress(80);
                 setProcessingStatus(`Transcription complete. Summarizing "${fileName}"...`);
@@ -1144,7 +1144,7 @@ export default function Dashboard() {
                       </div>
                   ): (
                     <div
-                      className="w-full min-h-[200px] max-h-[600px] overflow-y-auto border rounded-md p-2 prose max-w-full bg-muted/30 flex-1"
+                      className="w-full min-h-[200px] max-h-[600px] overflow-y-auto border rounded-md p-2 prose max-w-full bg-muted/30 flex-1 text-sm"
                       dangerouslySetInnerHTML={{ __html: selectedRecording.summary || 'Summary not available.' }}
                     />
 

@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { addDays } from 'date-fns';
 import { useRouter } from 'next/navigation';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { getFirestore, doc, setDoc } from 'firebase/firestore';
@@ -12,6 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { auth } from '@/lib/firebase';
 import { Github, Chrome } from 'lucide-react';
 import { getFunctions, httpsCallable } from 'firebase/functions';
+import { defaultSummaryTemplate } from '@/lib/templates';
 
 
 import { Input } from '@/components/ui/input';
@@ -50,7 +50,9 @@ export default function LoginPage() {
         if (auth.currentUser) {
           const db = getFirestore();
           const userRef = doc(db, 'users', auth.currentUser.uid);
-          await setDoc(userRef, {  });
+          await setDoc(userRef, { 
+            template: defaultSummaryTemplate,
+           });
           const res = await createTrialSubscription();
         }
         setIsSignUp(false);

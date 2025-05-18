@@ -9,10 +9,7 @@
 
 import { ai } from '@/ai/ai-instance';
 import { z } from 'genkit';
-import { getFirestore, doc, getDoc } from 'firebase/firestore';
 import fetch from 'node-fetch';
-import { db, storage } from '@/lib/firebase';
-import { ref, getDownloadURL } from 'firebase/storage';
 
 const TranscribeAudioInputSchema = z.object({ // updated name
   audioFileName: z
@@ -20,7 +17,6 @@ const TranscribeAudioInputSchema = z.object({ // updated name
     .describe(
       "The downloadable url of the audio file.",
     ),
-  userId: z.string().describe('The ID of the user making the transcription request.'),
 });
 export type TranscribeAudioInput = z.infer<
   typeof TranscribeAudioInputSchema
@@ -51,16 +47,13 @@ const transcribeAudioFlow = ai.defineFlow<
     outputSchema: TranscribeAudioOutputSchema,
   },
   async ({ audioFileName, userId }) => {
-        //Get storage url from database
     // --- Retrieve AssemblyAI API Key ---
-    const userDocSnap = await getDoc(doc(db, 'users', userId));    if (!userDocSnap.exists()) {
-    }
-    const assemblyAiApiKey = userDocSnap.data().assemblyAiApiKey;
-    if (!assemblyAiApiKey) {
-      throw new Error('AssemblyAI API key is not configured for this user.');
-    }
+    const assemblyAiApiKey = process.env.ASSEMBLYAI_API_KEY;
 
-    console.log('AssemblyAI API Key:', assemblyAiApiKey);
+    if (!assemblyAiApiKey) {
+ throw new Error('AssemblyAI API key is not configured in environment variables.');
+    }
+ console.log('Using AssemblyAI API Key from environment variables.'); // Updated log
 
     // --- Call AssemblyAI Transcription API ---
     const assemblyAiApiUrl = 'https://api.assemblyai.com/v2/transcript';
