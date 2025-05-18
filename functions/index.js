@@ -18,7 +18,12 @@ exports.createStripeCheckoutSession =
   stripeFunctions.createStripeCheckoutSession;
 exports.cancelStripeSubscription =
   stripeFunctions.cancelStripeSubscription;
-exports.handleStripeWebhook = stripeFunctions.handleStripeWebhook;
+exports.handleStripeWebhook =
+  stripeFunctions.handleStripeWebhook;
+exports.createCustomerPortal =
+  stripeFunctions.createCustomerPortal;
+exports.createTrialSubscription =
+  stripeFunctions.createTrialSubscription;
 
 exports.checkTrialExpiration = checkTrialExpiration.checkTrialExpiration;
 

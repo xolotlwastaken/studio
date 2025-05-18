@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { useToast } from '@/hooks/use-toast';
 import { auth } from '@/lib/firebase';
 import { Github, Chrome } from 'lucide-react';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 
 
 import { Input } from '@/components/ui/input';
@@ -21,6 +22,9 @@ export default function LoginPage() {
   const [isSignUp, setIsSignUp] = useState(false);
   const router = useRouter();
   const { toast } = useToast();
+
+  const functions = getFunctions();
+  const createTrialSubscription = httpsCallable(functions, 'createTrialSubscription');
 
 
   const handleAuthAction = async (e: React.FormEvent) => {
@@ -35,27 +39,29 @@ export default function LoginPage() {
               });
               return;
         }
+
         await createUserWithEmailAndPassword(auth, email, password);
-        toast({ title: 'Success', description: 'Account created successfully!' });
+        toast({ title: 'Success', description: 'Account created successfully! Redirecting to your dashboard...' });
         setEmail('');
         setPassword(''); // Clear password fields after successful signup
- setConfirmPassword(''); // Clear password fields after successful signup
-        // Create user document and set trial expiration
- if (auth.currentUser) {
- const db = getFirestore();
- const userRef = doc(db, 'users', auth.currentUser.uid);
- const trialEndDate = addDays(new Date(), 1); // 1 day trial
- await setDoc(userRef, { isOnTrial: true, trialExpirationDate: trialEndDate });
+        setConfirmPassword(''); // Clear password fields after successful signup
+        
+        // Create user document and subscribe to trial subscription
+        if (auth.currentUser) {
+          const db = getFirestore();
+          const userRef = doc(db, 'users', auth.currentUser.uid);
+          await setDoc(userRef, {  });
+          const res = await createTrialSubscription();
         }
-        // Set trial expiration for new email/password users
-        await setTrialExpiration(auth.currentUser?.uid);
         setIsSignUp(false);
         // Redirect to root after successful signup
         router.push('/');
+
       } else {
         await signInWithEmailAndPassword(auth, email, password);
         toast({ title: 'Success', description: 'Logged in successfully!' });
         router.push('/');
+        
       }
     } catch (error: any) {
       console.error('Authentication error:', error);
@@ -78,23 +84,6 @@ export default function LoginPage() {
     }
   };
 
-  // Modified to create user document if it doesn't exist, instead of just updating
-  const setTrialExpiration = async (uid: string | undefined) => {
-    if (!uid) return;
-    const db = getFirestore();
-    const userRef = doc(db, 'users', uid);
-    const trialEndDate = addDays(new Date(), 1); // 1 day trial
-    try {
-      // Use setDoc with merge: true to create if not exists and update if exists
-      await setDoc(userRef, { isOnTrial: true, trialExpirationDate: trialEndDate }, { merge: true });
-      console.log('User document created/updated and trial expiration set successfully');
-    } catch (error) {
-      console.error('Error creating/updating user document and setting trial expiration:', error);
-    }
-
-
-  };
-
   const handleGoogleSignIn = async () => {
     const provider = new GoogleAuthProvider();
     // Optional: Add custom parameters here if needed, e.g., scope or prompt
@@ -111,10 +100,6 @@ export default function LoginPage() {
       const isNewUser = result.operationType === 'link' && result.user.metadata.creationTime === result.user.metadata.lastSignInTime;
       // Fallback check for new user based on metadata if operationType is not 'link' (can happen on first sign-in)
       const isNewUserFallback = result.operationType !== 'link' && result.user.metadata.creationTime === result.user.metadata.lastSignInTime;
-
-      if (isNewUser || isNewUserFallback) {
-        await setTrialExpiration(auth.currentUser?.uid);
-      }
 
       router.push('/');
     } catch (error: any) {

@@ -93,46 +93,21 @@ const SubscriptionPage: React.FC = () => {
     fetchAndSetActivePlan();
   }, [user]); // Add user as a dependency
 
-  const handleSubscribe = async (planId: string) => {
+
+  const handleManageSubscription = async () => {
     if (!user) {
-      console.error("User not logged in.");
-      // Optionally redirect to login page
-      // Optionally redirect to login page
-      router.push('/login');
-      return;
+        console.error("User not logged in.");
+        router.push('/login');
+        return;
     }
-    const userId = user.uid;
     setSubscribing(true);
     try {
-      // Get a reference to the functions instance
-      // Add a small delay to ensure auth state is fully settled
-      await new Promise(resolve => setTimeout(resolve, 300));
-
-      const functions = getFunctions(app);
-      // Get a callable function reference to your cloud function
-      const createStripeCheckoutSession = httpsCallable(functions, 'createStripeCheckoutSession');
-      
-      // Find the selected plan to get its type
-      const selectedPlan = plans.find(plan => plan.id === planId);
-      if (!selectedPlan) {
-        console.error("Selected plan not found.");
-        setSubscribing(false);
-        return;
-      }
-
-      // Call the function with the required data
-      const result = await createStripeCheckoutSession({ 
-        plan: planId,
-      });
-
-      // Redirect to the Stripe checkout page using the URL returned by the function
-      window.location.assign(((result.data as any).url));
-    } catch (error) {
-      console.error('Error creating Stripe checkout session:', error);
-    } finally {
- setSubscribing(false);
-    }
-  };
+        const functions = getFunctions(app);
+        const createCustomerPortal = httpsCallable(functions, 'createCustomerPortal');
+        const portalUrl = await createCustomerPortal({ userId: user.uid }).then(res => (res.data as any).url);
+        if (portalUrl) { window.location.assign(portalUrl); }
+    } catch (error) { console.error("Error creating customer portal:", error); toast({ variant: 'destructive', title: 'Error', description: 'Could not open billing portal.' }); }
+ };
 
   const handleCancelSubscription = async () => {
     if (!user) {
@@ -217,25 +192,9 @@ const SubscriptionPage: React.FC = () => {
  ))}
  </ul>
             {activePlan === plan.id ? (
-              <AlertDialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen}>
-              <AlertDialogTrigger asChild>
-               <button className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600" disabled={subscribing}>Cancel Plan</button>
-              </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Are you sure you want to cancel your subscription?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This action cannot be undone. Your subscription will be cancelled at the end of the current billing period.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleCancelSubscription} disabled={subscribing}>Confirm</AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+               <button onClick={() => handleManageSubscription()} className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600" disabled={subscribing}>Cancel Plan</button>
             ) : (
-              <button onClick={() => handleSubscribe(plan.id)} className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600" disabled={subscribing}>Subscribe</button>
+              <button onClick={() => handleManageSubscription()} className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600" disabled={subscribing}>Subscribe</button>
             )}
  </div>
           </div>

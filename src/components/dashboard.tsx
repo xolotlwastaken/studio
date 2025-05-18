@@ -1,5 +1,6 @@
 'use client';
 
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';;
 import { signOut } from 'firebase/auth';
@@ -33,8 +34,8 @@ import { useToast } from '@/hooks/use-toast'; // Updated import path
 import { useAuth } from '@/components/auth-provider';
 import { auth, db, storage } from '@/lib/firebase'; // Use getter functions
 import { transcribeAudio } from '@/ai/flows/transcribe-audio';;
-import { summarizeTranscriptWithTemplate } from '@/ai/flows/summarize-transcript';
-import { Upload, Mic, Download, FileText, Settings, LogOut, Loader2, Edit3, Trash2 } from 'lucide-react';
+import { summarizeTranscriptWithTemplate } from '@/ai/flows/summarize-transcript';;
+import { Upload, Mic, Download, FileText, Settings, LogOut, Loader2, Edit3, Trash2, CreditCard } from 'lucide-react';
 import LoadingSpinner from './loading-spinner';
 
 interface Recording {
@@ -47,7 +48,6 @@ interface Recording {
   status: 'processing-pending' | 'transcribing' | 'summarizing' | 'completed' | 'error';
 };
 
-import { CreditCard } from 'lucide-react';
 export default function Dashboard() {
   const [isDeleting, setIsDeleting] = useState(false);
   const { user } = useAuth();
@@ -68,6 +68,7 @@ export default function Dashboard() {
   const [editedTranscript, setEditedTranscript] = useState('');
   const [isEditingTranscript, setIsEditingTranscript] = useState(false);
   const [trialRemaining, setTrialRemaining] = useState<string | null>(null);
+  const [trialEndDate, setTrialEndDate] = useState<Date | null>(null);
   const [userSubscriptionPlan, setUserSubscriptionPlan] = useState<string | null>(null);
   const [canRecordOrUpload, setCanRecordOrUpload] = useState(true);
 
@@ -156,28 +157,37 @@ export default function Dashboard() {
             if (userDocSnap.exists()) {
                 const userData = userDocSnap.data();
                 console.log("User document found:", userData);
+                const subscriptionStatus = userData.subscriptionStatus;
+                const subscriptionTrialEnd = userData.subscriptionTrialEnd ? userData.subscriptionTrialEnd.toDate() : null; // Convert Timestamp to Date
 
-                if (userData.isSubscribed === true && userData.planType) {
+                if (subscriptionStatus === 'active') {
                     // User has an active subscription
                     setUserSubscriptionPlan(`Current Plan: ${userData.planType.toUpperCase()}`);
-                    setTrialRemaining(null); // Hide trial info
-                } else if (userData.trialExpirationDate && userData.trialExpirationDate.toDate) {
+                    setTrialRemaining(null);
+                    setCanRecordOrUpload(true); // Allow recording/uploading for active subscribers
+                } else if (subscriptionStatus === 'trialing' && subscriptionTrialEnd && subscriptionTrialEnd > new Date()) {
                     // User is on trial and trialExpirationDate exists
-                    const expirationDate = userData.trialExpirationDate.toDate();
+                    setUserSubscriptionPlan("Free Trial:");
+                    const expirationDate = subscriptionTrialEnd;
+                    setTrialEndDate(expirationDate);
                     const now = new Date();
                     const diffInMs = expirationDate.getTime() - now.getTime();
-                    if (diffInMs > 0) {
-                        const diffInSeconds = Math.floor(diffInMs / 1000);
-                        const days = Math.floor(diffInSeconds / (60 * 60 * 24));
-                        const hours = Math.floor((diffInSeconds % (60 * 60 * 24)) / (60 * 60));
-                        const minutes = Math.floor((diffInSeconds % (60 * 60)) / 60);
-                        setTrialRemaining(`Trial remaining: ${days}d ${hours}h ${minutes}m`);
-                    } else {
-                        setTrialRemaining("Trial ended");
-                        setCanRecordOrUpload(false); // Set state when trial ends
-                    }
- } else { setTrialRemaining(null); } // Hide trial info if no subscription or trial
-            }
+                    const diffInSeconds = Math.floor(diffInMs / 1000);
+                    const days = Math.floor(diffInSeconds / (60 * 60 * 24));
+                    const hours = Math.floor((diffInSeconds % (60 * 60 * 24)) / (60 * 60));
+                    const minutes = Math.floor((diffInSeconds % (60 * 60)) / 60);
+                    setTrialRemaining(`${days}d ${hours}h ${minutes}m left`);
+                    setCanRecordOrUpload(true); // Allow recording/uploading during active trial
+                } else if (subscriptionStatus === 'trialing' && (!subscriptionTrialEnd || subscriptionTrialEnd <= new Date())) {
+                    // Trial ended, even if status is still 'trialing' due to delay
+                     setUserSubscriptionPlan("Trial Ended");
+                     setTrialRemaining("Trial ended");
+                    setTrialEndDate(null);
+                     setCanRecordOrUpload(false); // Disable when trial is over
+                } else { // No subscription or trial information
+                   setUserSubscriptionPlan(null);
+                   setTrialRemaining(null);
+                }}
         } catch (error) { console.error("Error fetching user status:", error); }
     };
 
@@ -186,7 +196,17 @@ export default function Dashboard() {
     return () => unsubscribe();
    // Update dependencies: remove selectedRecording if updates cause issues, add isEditingTranscript
   }, [user, db, toast, isEditingTranscript]);
-
+  
+ const handleManageBilling = async () => {
+    if (!user) return;
+    try {
+        // Use httpsCallable to call the Firebase function reference
+        const createCustomerPortal = httpsCallable(getFunctions(), 'createCustomerPortal');
+        const portalUrl = await createCustomerPortal({ userId: user.uid }).then(res => res.data.url);
+        if (portalUrl) { router.push(portalUrl); }
+    } catch (error) { console.error("Error creating customer portal:", error); toast({ variant: 'destructive', title: 'Error', description: 'Could not open billing portal.' }); }
+ };
+ 
 
   const handleLogout = async () => {
     try {
@@ -987,15 +1007,18 @@ export default function Dashboard() {
             <h1 className="text-2xl font-semibold">Dashboard</h1>
             {/* Subscription Plan or Trial Expiration Display */}
             {userSubscriptionPlan && (
-                <div className="text-sm text-muted-foreground flex items-right justify-end flex-1 ml-auto mr-2">
+                <div className="text-sm text-muted-foreground flex items-center justify-end flex-1 ml-auto mr-2">
                    {userSubscriptionPlan}
                 </div>
             )}
-            {!userSubscriptionPlan && trialRemaining && (
-              <div className="text-sm text-muted-foreground flex items-right justify-end flex-1 ml-auto mr-2">
+            {userSubscriptionPlan === 'Free Trial:' && trialRemaining && (
+              <div className="text-sm text-muted-foreground ml-auto mr-2">
                 {trialRemaining}
               </div>
             )}
+             {/* Manage Billing Button */}
+            <Button variant="outline" size="sm" onClick={handleManageBilling} className="ml-2">Manage Billing</Button>
+
             <SidebarTrigger className="md:hidden" />
         </div>
 
