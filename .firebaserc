@@ -1,5 +1,7 @@
 {
   "projects": {
     "default": "scribet-f1901"
-  }
+  },
+  "targets": {},
+  "etags": {}
 }
