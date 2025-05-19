@@ -19,11 +19,7 @@ import {
   SidebarMenuItem,
   SidebarProvider,
   SidebarTrigger,
-  SidebarMenuSub,
-  SidebarMenuSubItem,
-  SidebarMenuSubButton
-  ,SidebarRail
- ,SidebarContentTop
+  SidebarRail
 } from '@/components/ui/sidebar';;
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -71,6 +67,7 @@ export default function Dashboard() {
   const [trialEndDate, setTrialEndDate] = useState<Date | null>(null);
   const [userSubscriptionPlan, setUserSubscriptionPlan] = useState<string | null>(null);
   const [canRecordOrUpload, setCanRecordOrUpload] = useState(true);
+  const [managingSubscription, setManagingSubscription] = useState(false);
 
 
   useEffect(() => {
@@ -198,7 +195,9 @@ export default function Dashboard() {
   }, [user, db, toast, isEditingTranscript]);
   
  const handleManageBilling = async () => {
+    setManagingSubscription(true);
     if (!user) return;
+
     try {
         // Use httpsCallable to call the Firebase function reference
         const createCustomerPortal = httpsCallable(getFunctions(), 'createCustomerPortal');
@@ -206,6 +205,7 @@ export default function Dashboard() {
         if (portalUrl) { router.push(portalUrl); }
     } catch (error) { console.error("Error creating customer portal:", error); toast({ variant: 'destructive', title: 'Error', description: 'Could not open billing portal.' }); }
  };
+
  
 
   const handleLogout = async () => {
@@ -1016,8 +1016,13 @@ export default function Dashboard() {
                 {trialRemaining}
               </div>
             )}
-             {/* Manage Billing Button */}
-            <Button variant="outline" size="sm" onClick={handleManageBilling} className="ml-2">Manage Billing</Button>
+            {/* Manage Billing Button */}
+            <Button variant="outline" size="sm" onClick={handleManageBilling} className="ml-2" disabled={managingSubscription}>
+              {managingSubscription ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              Manage Billing
+            </Button>
 
             <SidebarTrigger className="md:hidden" />
         </div>
