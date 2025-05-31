@@ -43,8 +43,9 @@ functions.https.onCall(async (request) => {
       items: [{price: priceId}],
       trial_period_days: trialDays,
       payment_behavior: "default_incomplete", // avoids charge or invoice
+      cancel_at_period_end: true,
     });
-
+    [];
     // Store subscription details in Firestore
     await admin.firestore().collection("users").doc(uid).update({
       stripeCustomerId: customerId,
@@ -323,6 +324,14 @@ exports.handleStripeWebhook = functions.https.onRequest(async (req, res) => {
         console.log("Subscription updated:", subscription.id);
         const customerId = subscription.customer;
 
+        // If upgrade trial, set cancel_at_period_end to false
+        if (event.data.previous_attributes.status === "trialing" &&
+          subscription.status === "active") {
+          await stripe.subscriptions.update(subscription.id, {
+            cancel_at_period_end: false,
+          });
+        }
+
         try {
           // Find the user in your database by their stripeCustomerId
           const userQuerySnapshot = await
@@ -344,10 +353,6 @@ exports.handleStripeWebhook = functions.https.onRequest(async (req, res) => {
                       subscription.items.data[0].current_period_end * 1000,
                   ),
                 });
-            console.log(
-                `User ${userIdToUpdateSubscription} 
-                subscription status updated to false.`,
-            );
           } else {
             console.warn(
                 `User with Stripe Customer ID ${customerId} 
