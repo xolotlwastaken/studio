@@ -46,6 +46,9 @@ env:
     availability:
       - BUILD
       - RUNTIME
+
+  - variable: APP_URL
+    value: "https://scribet-backend--scribet-f1901.asia-east1.hosted.app/"
   
   # Grant access to secrets in Cloud Secret Manager.
   # See https://firebase.google.com/docs/app-hosting/configure#secret-parameters
