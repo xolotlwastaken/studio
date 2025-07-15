@@ -1,8 +1,31 @@
 const functions = require("firebase-functions");
 const htmlToDocx = require("html-to-docx");
+const admin = require("firebase-admin");
+const stripeFunctions = require("./stripe");
+const checkTrialExpiration = require("./checkTrialExpiration");
+
 const cors = require("cors")({
   origin: true,
 });
+
+
+if (!admin.apps.length) {
+  admin.initializeApp();
+}
+
+// Stripe
+exports.createStripeCheckoutSession =
+  stripeFunctions.createStripeCheckoutSession;
+exports.cancelStripeSubscription =
+  stripeFunctions.cancelStripeSubscription;
+exports.handleStripeWebhook =
+  stripeFunctions.handleStripeWebhook;
+exports.createCustomerPortal =
+  stripeFunctions.createCustomerPortal;
+exports.createTrialSubscription =
+  stripeFunctions.createTrialSubscription;
+
+exports.checkTrialExpiration = checkTrialExpiration.checkTrialExpiration;
 
 exports.generateDocx = functions.https.onRequest((req, res) => {
   cors(req, res, async () => { // Use cors middleware here

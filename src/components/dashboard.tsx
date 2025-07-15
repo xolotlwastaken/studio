@@ -1,5 +1,6 @@
 'use client';
 
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';;
 import { signOut } from 'firebase/auth';
@@ -18,11 +19,8 @@ import {
   SidebarMenuItem,
   SidebarProvider,
   SidebarTrigger,
-  SidebarMenuSub,
-  SidebarMenuSubItem,
-  SidebarMenuSubButton
-  ,SidebarRail
-} from '@/components/ui/sidebar';
+  SidebarRail
+} from '@/components/ui/sidebar';;
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -31,9 +29,9 @@ import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast'; // Updated import path
 import { useAuth } from '@/components/auth-provider';
 import { auth, db, storage } from '@/lib/firebase'; // Use getter functions
-import { transcribeAudio } from '@/ai/flows/transcribe-audio';
-import { summarizeTranscriptWithTemplate } from '@/ai/flows/summarize-transcript';
-import { Upload, Mic, Download, FileText, Settings, LogOut, Loader2, Edit3, Trash2 } from 'lucide-react';
+import { transcribeAudio } from '@/ai/flows/transcribe-audio';;
+import { summarizeTranscriptWithTemplate } from '@/ai/flows/summarize-transcript';;
+import { Upload, Mic, Download, FileText, Settings, LogOut, Loader2, Edit3, Trash2, CreditCard } from 'lucide-react';
 import LoadingSpinner from './loading-spinner';
 
 interface Recording {
@@ -65,6 +63,11 @@ export default function Dashboard() {
   const [editedRecordingNames, setEditedRecordingNames] = useState<{ [id: string]: string }>({});
   const [editedTranscript, setEditedTranscript] = useState('');
   const [isEditingTranscript, setIsEditingTranscript] = useState(false);
+  const [trialRemaining, setTrialRemaining] = useState<string | null>(null);
+  const [trialEndDate, setTrialEndDate] = useState<Date | null>(null);
+  const [userSubscriptionPlan, setUserSubscriptionPlan] = useState<string | null>(null);
+  const [canRecordOrUpload, setCanRecordOrUpload] = useState(true);
+  const [managingSubscription, setManagingSubscription] = useState(false);
 
 
   useEffect(() => {
@@ -140,11 +143,70 @@ export default function Dashboard() {
     };
     fetchTemplate();
 
+    // Fetch user subscription status or trial expiration
+    const fetchUserStatus = async () => {
+        if (!user) return;
+        console.log("Fetching user document for status:", user.uid);
+        try {
+            const userDocRef = doc(db, 'users', user.uid);
+            const userDocSnap = await getDoc(userDocRef);
+
+            if (userDocSnap.exists()) {
+                const userData = userDocSnap.data();
+                console.log("User document found:", userData);
+                const subscriptionStatus = userData.subscriptionStatus;
+                const subscriptionTrialEnd = userData.subscriptionTrialEnd ? userData.subscriptionTrialEnd.toDate() : null; // Convert Timestamp to Date
+
+                if (subscriptionStatus === 'active') {
+                    // User has an active subscription
+                    setUserSubscriptionPlan(`Current Plan: ${userData.planType.toUpperCase()}`);
+                    setTrialRemaining(null);
+                    setCanRecordOrUpload(true); // Allow recording/uploading for active subscribers
+                } else if (subscriptionStatus === 'trialing' && subscriptionTrialEnd && subscriptionTrialEnd > new Date()) {
+                    // User is on trial and trialExpirationDate exists
+                    setUserSubscriptionPlan("Free Trial:");
+                    const expirationDate = subscriptionTrialEnd;
+                    setTrialEndDate(expirationDate);
+                    const now = new Date();
+                    const diffInMs = expirationDate.getTime() - now.getTime();
+                    const diffInSeconds = Math.floor(diffInMs / 1000);
+                    const days = Math.floor(diffInSeconds / (60 * 60 * 24));
+                    const hours = Math.floor((diffInSeconds % (60 * 60 * 24)) / (60 * 60));
+                    const minutes = Math.floor((diffInSeconds % (60 * 60)) / 60);
+                    setTrialRemaining(`${days}d ${hours}h ${minutes}m left`);
+                    setCanRecordOrUpload(true); // Allow recording/uploading during active trial
+                } else if (subscriptionStatus === 'trialing' && (!subscriptionTrialEnd || subscriptionTrialEnd <= new Date())) {
+                    // Trial ended, even if status is still 'trialing' due to delay
+                     setUserSubscriptionPlan("Trial Ended");
+                     setTrialRemaining("Trial ended");
+                    setTrialEndDate(null);
+                     setCanRecordOrUpload(false); // Disable when trial is over
+                } else { // No subscription or trial information
+                   setUserSubscriptionPlan(null);
+                   setTrialRemaining(null);
+                }}
+        } catch (error) { console.error("Error fetching user status:", error); }
+    };
+
+    fetchUserStatus();
 
     return () => unsubscribe();
    // Update dependencies: remove selectedRecording if updates cause issues, add isEditingTranscript
   }, [user, db, toast, isEditingTranscript]);
+  
+ const handleManageBilling = async () => {
+    setManagingSubscription(true);
+    if (!user) return;
 
+    try {
+        // Use httpsCallable to call the Firebase function reference
+        const createCustomerPortal = httpsCallable(getFunctions(), 'createCustomerPortal');
+        const portalUrl = await createCustomerPortal({ userId: user.uid }).then(res => res.data.url);
+        if (portalUrl) { router.push(portalUrl); }
+    } catch (error) { router.push('/subscription'); }
+ };
+
+ 
 
   const handleLogout = async () => {
     try {
@@ -158,6 +220,11 @@ export default function Dashboard() {
   };
 
   const startRecording = async () => {
+    // Check subscription/trial before starting recording
+    if (!canRecordOrUpload) {
+       toast({ variant: 'destructive', title: 'Free Trial Ended', description: 'Your free trial has ended. Please subscribe to continue recording.' });
+       return;
+    }
     setAudioChunks([]);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -238,7 +305,9 @@ export default function Dashboard() {
   };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+
     const file = event.target.files?.[0];
+    
     if (file && user) {
         // Reset input value to allow uploading the same file again
        event.target.value = '';
@@ -246,12 +315,17 @@ export default function Dashboard() {
             toast({ variant: 'destructive', title: 'Invalid File Type', description: 'Please upload an audio file.' });
             return;
        }
+
+    // Check subscription/trial before uploading
+    if (!canRecordOrUpload) {
+       toast({ variant: 'destructive', title: 'Free Trial Ended', description: 'Your free trial has ended. Please subscribe to upload audio files.' });
+       return;
+    }
       uploadAudio(file, file.name);
     }
   };
 
   const uploadAudio = async (audioBlob: Blob, fileName: string) => {
-     console.log("uploadAudio called");
 
     if (!user) return;
     if (audioBlob.size === 0) {
@@ -284,7 +358,7 @@ export default function Dashboard() {
         const recordingId = newRecordingRef.id;
         const storageFileNameRecordings = `${Date.now()}-${uniqueString}.${fileName.split('.').pop()}`;
         storageRefUpload = ref(storage, `users/${user.uid}/recordings/${recordingId}/audio/${storageFileNameRecordings}`);        
-
+       
          await uploadBytes(storageRef, audioBlob);
          
         const downloadURL = await getDownloadURL(uploadTask.ref);
@@ -398,7 +472,7 @@ export default function Dashboard() {
         // 3. Call transcription flow
           let transcript = '';
            try {
-               const transcriptionResult = await transcribeAudio({ audioFileName: audio_url, userId: user.uid });
+               const transcriptionResult = await transcribeAudio({ audioFileName: audio_url });
                 transcript = transcriptionResult.text;
                 setProgress(80);
                 setProcessingStatus(`Transcription complete. Summarizing "${fileName}"...`);
@@ -803,8 +877,6 @@ export default function Dashboard() {
              <FileText className="h-6 w-6 text-primary" />
              <h1 className="text-xl font-semibold flex-1 overflow-hidden whitespace-nowrap group-data-[collapsible=icon]:hidden">Scribet</h1>
              <SidebarTrigger className="ml-auto group-data-[collapsible=icon]:hidden"/>
-            
-
           </div>
         </SidebarHeader>
         <SidebarContent className="p-0">
@@ -909,6 +981,12 @@ export default function Dashboard() {
                         </SidebarMenuButton>
                     </SidebarMenuItem>
                     <SidebarMenuItem>
+                      <SidebarMenuButton onClick={() => router.push('/subscription')} tooltip={{ children: 'Subscription', side: 'right', align: 'center' }}>
+                                                  <CreditCard />
+                                                  <span className="group-data-[collapsible=icon]:hidden">Subscription</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
                         <SidebarMenuButton onClick={handleLogout} tooltip={{ children: 'Logout', side: 'right', align: 'center' }}>
                             <LogOut />
                             <span className="group-data-[collapsible=icon]:hidden">Logout</span>
@@ -927,6 +1005,25 @@ export default function Dashboard() {
       <SidebarInset className="p-4 md:p-6 flex flex-col">
         <div className="flex items-center justify-between mb-4 flex-shrink-0">
             <h1 className="text-2xl font-semibold">Dashboard</h1>
+            {/* Subscription Plan or Trial Expiration Display */}
+            {userSubscriptionPlan && (
+                <div className="text-sm text-muted-foreground flex items-center justify-end flex-1 ml-auto mr-2">
+                   {userSubscriptionPlan}
+                </div>
+            )}
+            {userSubscriptionPlan === 'Free Trial:' && trialRemaining && (
+              <div className="text-sm text-muted-foreground ml-auto mr-2">
+                {trialRemaining}
+              </div>
+            )}
+            {/* Manage Billing Button */}
+            <Button variant="outline" size="sm" onClick={handleManageBilling} className="ml-2" disabled={managingSubscription}>
+              {managingSubscription ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              Manage Billing
+            </Button>
+
             <SidebarTrigger className="md:hidden" />
         </div>
 
@@ -1020,7 +1117,7 @@ export default function Dashboard() {
                         <CardTitle>Summary</CardTitle>
                         <CardDescription className="mt-1">Formatted based on your template</CardDescription>
                     </div>
-                    {(selectedRecording.status === 'completed' || selectedRecording.status === 'error') && userTemplate && (
+                    {(selectedRecording.status === 'completed' || selectedRecording.status === 'error') && userTemplate && canRecordOrUpload && (
                         <Button
                             variant="outline"
                             size="sm"
@@ -1052,15 +1149,11 @@ export default function Dashboard() {
                       </div>
                   ): (
                     <div
-                      className="w-full min-h-[200px] max-h-[600px] overflow-y-auto border rounded-md p-2 prose max-w-full bg-muted/30 flex-1"
+                      className="w-full min-h-[200px] max-h-[600px] overflow-y-auto border rounded-md p-2 prose max-w-full bg-muted/30 flex-1 text-sm"
                       dangerouslySetInnerHTML={{ __html: selectedRecording.summary || 'Summary not available.' }}
                     />
 
                   )}
-                 {/* Placeholder for Markdown rendering component */}
-                    {/*  <ReactMarkdown>
-                        {selectedRecording.summary || ''}
-                    </ReactMarkdown> */}
                   {selectedRecording.summary && selectedRecording.status !== 'error' && (
                       <Button variant="outline" size="sm" className="mt-4 flex-shrink-0" onClick={() => handleDownload('summary')}>
                           <Download className="mr-2 h-4 w-4" /> Download Summary as Txt
