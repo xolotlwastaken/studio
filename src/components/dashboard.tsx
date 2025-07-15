@@ -203,7 +203,7 @@ export default function Dashboard() {
         const createCustomerPortal = httpsCallable(getFunctions(), 'createCustomerPortal');
         const portalUrl = await createCustomerPortal({ userId: user.uid }).then(res => res.data.url);
         if (portalUrl) { router.push(portalUrl); }
-    } catch (error) { console.error("Error creating customer portal:", error); toast({ variant: 'destructive', title: 'Error', description: 'Could not open billing portal.' }); }
+    } catch (error) { router.push('/subscription'); }
  };
 
  

@@ -10,9 +10,9 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { useToast } from '@/hooks/use-toast';
 import { auth } from '@/lib/firebase';
 import { Github, Chrome } from 'lucide-react';
-import { getFunctions, httpsCallable } from 'firebase/functions';
 import { defaultSummaryTemplate } from '@/lib/templates';
 
+const TRIAL_DAYS = 7; // Or read from environment variable process.env.TRIAL_DAYS
 
 import { Input } from '@/components/ui/input';
 export default function LoginPage() {
@@ -22,9 +22,6 @@ export default function LoginPage() {
   const [isSignUp, setIsSignUp] = useState(false);
   const router = useRouter();
   const { toast } = useToast();
-
-  const functions = getFunctions();
-  const createTrialSubscription = httpsCallable(functions, 'createTrialSubscription');
 
 
   const handleAuthAction = async (e: React.FormEvent) => {
@@ -51,9 +48,10 @@ export default function LoginPage() {
           const db = getFirestore();
           const userRef = doc(db, 'users', auth.currentUser.uid);
           await setDoc(userRef, { 
-            template: defaultSummaryTemplate,
+            template: defaultSummaryTemplate, // Keep existing template field
+            subscriptionTrialEnd: new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000), // Add trial end date
+            subscriptionStatus: 'trialing',
            });
-          const res = await createTrialSubscription();
         }
         setIsSignUp(false);
         // Redirect to root after successful signup

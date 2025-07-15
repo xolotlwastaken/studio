@@ -17,58 +17,6 @@ const stripe = new Stripe(config.stripe.secret_key, {
   apiVersion: "2023-10-16", // Set your desired Stripe API version
 });
 
-exports.createTrialSubscription =
-functions.https.onCall(async (request) => {
-  try {
-    const uid = request.auth.uid;
-    if (!uid) {
-      throw new functions.https.HttpsError(
-          "unauthenticated",
-          "User must be logged in",
-      );
-    }
-
-    const customer = await stripe.customers.create({
-      metadata: {firebaseUID: uid},
-      email: request.auth.token.email,
-    });
-    const customerId = customer.id;
-
-    const priceId = config.stripe.weekly_price_id;
-    const trialDays = 1;
-
-    // Create the subscription with trial and no payment method
-    const subscription = await stripe.subscriptions.create({
-      customer: customerId,
-      items: [{price: priceId}],
-      trial_period_days: trialDays,
-      payment_behavior: "default_incomplete", // avoids charge or invoice
-      cancel_at_period_end: true,
-    });
-    [];
-    // Store subscription details in Firestore
-    await admin.firestore().collection("users").doc(uid).update({
-      stripeCustomerId: customerId,
-      subscriptionId: subscription.id,
-      subscriptionStatus: subscription.status,
-      subscriptionTrialEnd:
-        admin.firestore.Timestamp.fromMillis(subscription.trial_end * 1000),
-    });
-
-    return {
-      message: "Trial subscription created successfully",
-      subscriptionId: subscription.id,
-      trialEnds: subscription.trial_end,
-    };
-  } catch (error) {
-    console.error("[createTrialSubscription]", error);
-    throw new functions.https.HttpsError(
-        "internal",
-        error.message,
-    );
-  }
-});
-
 exports.createStripeCheckoutSession =
 functions.https.onCall(async (request) => {
   const {plan} = request.data;

@@ -94,19 +94,26 @@ const SubscriptionPage: React.FC = () => {
   }, [user]); // Add user as a dependency
 
 
-  const handleManageSubscription = async () => {
+  const handleManageSubscription = async (planId) => {
     if (!user) {
         console.error("User not logged in.");
         router.push('/login');
         return;
     }
-    setSubscribing(true);
     try {
+ if (activePlan) {
+ // If user has an active plan, redirect to Stripe customer portal
+ handleCancelSubscription(); // Using cancel function to go to portal
+ return;
+ }
+        setSubscribing(true);
         const functions = getFunctions(app);
-        const createCustomerPortal = httpsCallable(functions, 'createCustomerPortal');
-        const portalUrl = await createCustomerPortal({ userId: user.uid }).then(res => (res.data as any).url);
-        if (portalUrl) { window.location.assign(portalUrl); }
-    } catch (error) { console.error("Error creating customer portal:", error); toast({ variant: 'destructive', title: 'Error', description: 'Could not open billing portal.' }); }
+        const createStripeCheckoutSession = httpsCallable(functions, 'createStripeCheckoutSession');
+        const session = await createStripeCheckoutSession({ plan: planId }).then(res => (res.data as any));
+        if (session && session.url) {
+            window.location.assign(session.url);
+        } 
+    } catch (error) { console.error("Error creating checkout session:", error); toast({ variant: 'destructive', title: 'Error', description: 'Could not initiate checkout.' }); }
  };
 
   const handleCancelSubscription = async () => {
@@ -119,17 +126,12 @@ const SubscriptionPage: React.FC = () => {
     setSubscribing(true);
     try {
       const functions = getFunctions(app);
-      const cancelStripeSubscription = httpsCallable(functions, 'cancelStripeSubscription');
-
-      await cancelStripeSubscription();
-
-      // Update UI after successful cancellation
-      setActivePlan(null);
-      toast({
-        title: "Subscription Cancelled",
-        description: "Your subscription has been successfully cancelled.",
-      });
-    } catch (error: any) {
+      const createCustomerPortal = httpsCallable(functions, 'createCustomerPortal');
+      const portalUrl = await createCustomerPortal({ userId: user.uid }).then(res => (res.data as any).url);
+      if (portalUrl) { 
+        window.location.assign(portalUrl); 
+      }
+    } catch (error: any) { 
       console.error('Error canceling subscription:', error);
       toast({
         title: "Cancellation Failed",
@@ -187,14 +189,14 @@ const SubscriptionPage: React.FC = () => {
  {plan.features && plan.features.map((feature, index) => (
  <li key={index} className="flex items-center mb-2">
  <svg className="h-5 w-5 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
- {feature}
+               {feature}
  </li>
  ))}
  </ul>
             {activePlan === plan.id ? (
-               <button onClick={() => handleManageSubscription()} className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600" disabled={subscribing}>Cancel Plan</button>
-            ) : (
-              <button onClick={() => handleManageSubscription()} className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600" disabled={subscribing}>Subscribe</button>
+               <button onClick={() => handleCancelSubscription()} className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600" disabled={subscribing}>Cancel Plan</button>
+            ) : ( 
+              <button onClick={() => handleManageSubscription(plan.id)} className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600" disabled={subscribing}>Subscribe</button>
             )}
  </div>
           </div>
