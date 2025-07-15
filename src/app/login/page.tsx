@@ -96,12 +96,26 @@ export default function LoginPage() {
       const result = await signInWithPopup(auth, provider);
       toast({ title: 'Success', description: 'Logged in with Google successfully!' });
 
-      // Check if it's a new user to create document and set trial
-      const isNewUser = result.operationType === 'link' && result.user.metadata.creationTime === result.user.metadata.lastSignInTime;
-      // Fallback check for new user based on metadata if operationType is not 'link' (can happen on first sign-in)
-      const isNewUserFallback = result.operationType !== 'link' && result.user.metadata.creationTime === result.user.metadata.lastSignInTime;
+      // After successful Google Sign-In, check if it's a new user and create document/trial
+ if (auth.currentUser) {
+ const db = getFirestore();
+ // Fetch the user document to check if it exists
+ const userDocRef = doc(db, 'users', auth.currentUser.uid);
+ const userDocSnap = await getDoc(userDocRef); // Using getDoc to check existence
+
+ if (!userDocSnap.exists()) {
+ // If the document doesn't exist, it's a new user (or first time signing in with this method)
+ await setDoc(userDocRef, {
+ template: defaultSummaryTemplate,
+ subscriptionTrialEnd: new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000),
+ subscriptionStatus: 'trialing',
+ });
+ }
+ }
+
 
       router.push('/');
+
     } catch (error: any) {
        let description = error.message || 'Could not sign in with Google.';
        if (error.code === 'auth/popup-closed-by-user') {
